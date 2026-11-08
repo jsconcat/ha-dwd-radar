@@ -1,5 +1,5 @@
 name: DWD Regenradar
-version: "0.1.2"
+version: "0.2.0"
 slug: dwd_radar
 description: Regenradar aus DWD-Open-Data (RV-Komposit + 2-h-Vorhersage) als Leaflet-Seite unter /local/dwd-radar/
 url: https://github.com/jsconcat/ha-dwd-radar
@@ -37,7 +37,7 @@ options:
   stale_minutes: 20
   hillshade: true
   hillshade_strength: 1.0
-  basemap: basemapde
+  basemap: own
   carto_key: ""
   basemap_filter: ""
   log_level: info
@@ -70,7 +70,7 @@ schema:
   stale_minutes: int(10,180)
   hillshade: bool
   hillshade_strength: float(0,3)
-  basemap: list(basemapde|carto|osm)
+  basemap: list(own|basemapde|carto|osm)
   carto_key: str?
   basemap_filter: str?
   log_level: list(debug|info|warning|error)

@@ -22,6 +22,7 @@ import requests
 import dwd
 from ha import HA
 from hillshade import Hillshade
+from mapoverlay import MapOverlay
 from render import Extent, Renderer
 
 OPTIONS = Path(os.environ.get("OPTIONS_FILE", "/data/options.json"))
@@ -59,7 +60,7 @@ def load_options() -> dict:
         "frame_ms": 450, "hold_now_ms": 1500, "hold_end_ms": 2500,
         "controls_hide_s": 6, "reset_view_s": 90, "stale_minutes": 20,
         "hillshade": True, "hillshade_strength": 1.0,
-        "basemap": "basemapde", "carto_key": "", "basemap_filter": "",
+        "basemap": "own", "carto_key": "", "basemap_filter": "",
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -215,6 +216,10 @@ class Radar:
 
 
 BASEMAPS = {
+    "own": {
+        "url": None, "labels": "overlay/{z}/{x}/{y}.png", "own": True,
+        "attribution": "Grenzen: Natural Earth · Orte: GeoNames", "maxNativeZoom": 12, "filter": "",
+    },
     "basemapde": {
         "url": "https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
         "attribution": "© GeoBasis-DE / BKG (2026) CC BY 4.0",
@@ -234,15 +239,19 @@ BASEMAPS = {
 
 
 def basemap_cfg(opt: dict) -> dict:
-    name = opt.get("basemap", "basemapde")
+    name = opt.get("basemap", "own")
     if name == "carto" and not opt.get("carto_key"):
         log.warning("basemap=carto ohne carto_key – CARTO liefert ohne Key keine Kacheln; nutze basemap.de")
         name = "basemapde"
     b = dict(BASEMAPS.get(name, BASEMAPS["basemapde"]))
     key = str(opt.get("carto_key", ""))
-    b["url"] = b["url"].replace("{key}", key)
+    if b.get("url"):
+        b["url"] = b["url"].replace("{key}", key)
     if b.get("labels"):
         b["labels"] = b["labels"].replace("{key}", key)
+    if b.get("own"):
+        b["labels"] += f"?v={VERSION}"
+        b["maxNativeZoom"] = min(12, int(opt["max_zoom"]))
     if opt.get("basemap_filter"):
         b["filter"] = str(opt["basemap_filter"])
     b["name"] = name
@@ -281,22 +290,34 @@ def install_web(opt: dict, bounds) -> None:
     atomic_write(WWW / "config.json", json.dumps(cfg, indent=1).encode())
 
 
-def start_hillshade(opt: dict) -> None:
-    if not opt["hillshade"]:
-        return
+def background_jobs(opt: dict) -> list:
     b = (opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"])
     pad_lat = (b[1] - b[0]) * 0.75; pad_lon = (b[3] - b[2]) * 0.75
     wide = (b[0] - pad_lat, b[1] + pad_lat, b[2] - pad_lon, b[3] + pad_lon)
     zmax = min(12, int(opt["max_zoom"]))
-    jobs = [(wide, max(5, int(opt["min_zoom"]) - 1), min(zmax, 9)), (b, 10, zmax)] if zmax >= 10 \
-        else [(wide, max(5, int(opt["min_zoom"]) - 1), zmax)]
+    zmin = max(5, int(opt["min_zoom"]) - 1)
+    if zmax >= 10:
+        return [(wide, zmin, min(zmax, 9)), (b, 10, zmax)]
+    return [(wide, zmin, zmax)]
+
+
+def start_background(opt: dict) -> None:
+    """One-off map assets: own border/place overlay first, then hillshade."""
+    jobs = background_jobs(opt)
 
     def run():
-        try:
-            Hillshade(WWW / "hillshade", DATA / "dem_cache", opt["hillshade_strength"]).ensure(jobs)
-        except Exception as e:
-            log.error("Relief-Kacheln fehlgeschlagen (Karte funktioniert trotzdem): %s", e)
-    threading.Thread(target=run, daemon=True, name="hillshade").start()
+        if opt.get("basemap", "own") == "own":
+            try:
+                wide = jobs[0][0]
+                MapOverlay(WWW / "overlay", DATA / "geo_cache", wide).ensure(jobs)
+            except Exception as e:
+                log.error("Karten-Overlay fehlgeschlagen: %s", e)
+        if opt["hillshade"]:
+            try:
+                Hillshade(WWW / "hillshade", DATA / "dem_cache", opt["hillshade_strength"]).ensure(jobs)
+            except Exception as e:
+                log.error("Relief-Kacheln fehlgeschlagen (Karte funktioniert trotzdem): %s", e)
+    threading.Thread(target=run, daemon=True, name="mapassets").start()
 
 
 def main() -> None:
@@ -306,7 +327,7 @@ def main() -> None:
     radar = Radar(opt)
     install_web(opt, radar.renderer.bounds)
     log.info("Overlay %dx%d px, Bounds %s", radar.renderer.nx, radar.renderer.ny, radar.renderer.bounds)
-    start_hillshade(opt)
+    start_background(opt)
     while True:
         t0 = time.time()
         try:

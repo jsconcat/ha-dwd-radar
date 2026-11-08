@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+- Eigene Grundkarte (Standard): nur Staats-/Landesgrenzen und Ortsnamen über dem Regen, keine Straßen
+  (Natural Earth, GeoNames). basemap.de/CARTO/OSM weiterhin wählbar
+
 ## 0.1.2
 - basemap.de dezenter (CSS-Filter, über basemap_filter anpassbar)
 - Relief-Erzeugung setzt nach Neustart fort

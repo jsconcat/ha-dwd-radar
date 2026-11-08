@@ -44,11 +44,15 @@
     map.getPane('labels').style.zIndex = 450;
 
     var bm = cfg.basemap;
-    var base = L.tileLayer(bm.url, {
-      subdomains: bm.subdomains || 'abc', maxZoom: 19, maxNativeZoom: bm.maxNativeZoom, keepBuffer: 1,
-      attribution: bm.attribution
-    }).addTo(map);
-    if (bm.filter) base.getContainer().style.filter = bm.filter;
+    if (bm.url) {
+      var base = L.tileLayer(bm.url, {
+        subdomains: bm.subdomains || 'abc', maxZoom: 19, maxNativeZoom: bm.maxNativeZoom, keepBuffer: 1,
+        attribution: bm.attribution
+      }).addTo(map);
+      if (bm.filter) base.getContainer().style.filter = bm.filter;
+    } else {
+      map.attributionControl.addAttribution(bm.attribution);
+    }
     if (cfg.hillshade) {
       L.tileLayer('hillshade/{z}/{x}/{y}.png?v=' + cfg.version, {
         pane: 'hill', maxNativeZoom: cfg.maxZoom, minNativeZoom: 5, keepBuffer: 1,
@@ -56,7 +60,8 @@
       }).addTo(map);
     }
     if (bm.labels) {
-      L.tileLayer(bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1 })
+      L.tileLayer(bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1,
+        maxNativeZoom: bm.own ? bm.maxNativeZoom : 19, minNativeZoom: bm.own ? 5 : 0 })
         .addTo(map);
     }
 
