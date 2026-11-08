@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+- Gewässer (Flüsse, Seen) und Autobahnen unter dem Regen (OSM via Overpass, Fallback Natural Earth)
+- Hintergrund leicht salbeigrün
+
 ## 0.2.1
 - Ortspunkte mit seitlicher Beschriftung, Ausweichpositionen, Pin-Bereich bleibt frei; Pins etwas kleiner
 

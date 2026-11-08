@@ -38,6 +38,8 @@
     });
     map.attributionControl.setPrefix(false);
 
+    map.createPane('base').classList.add('hill-pane');
+    map.getPane('base').style.zIndex = 240;
     map.createPane('hill').classList.add('hill-pane');
     map.getPane('hill').style.zIndex = 250;
     map.createPane('labels').classList.add('labels-pane');
@@ -52,6 +54,10 @@
       if (bm.filter) base.getContainer().style.filter = bm.filter;
     } else {
       map.attributionControl.addAttribution(bm.attribution);
+    }
+    if (bm.base) {
+      L.tileLayer(bm.base, { pane: 'base', maxNativeZoom: bm.maxNativeZoom, minNativeZoom: 5, keepBuffer: 1 })
+        .addTo(map);
     }
     if (cfg.hillshade) {
       L.tileLayer('hillshade/{z}/{x}/{y}.png?v=' + cfg.version, {

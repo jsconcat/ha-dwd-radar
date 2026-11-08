@@ -1,7 +1,7 @@
-html, body { margin: 0; height: 100%; background: #e9ebe8; overflow: hidden;
+html, body { margin: 0; height: 100%; background: #e3e8dc; overflow: hidden;
   font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
-#map { position: absolute; inset: 0; background: #eef0ec; }
+#map { position: absolute; inset: 0; background: #e3e8dc; }
 
 /* layers */
 .leaflet-image-layer { image-rendering: auto; }

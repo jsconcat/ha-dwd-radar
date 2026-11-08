@@ -23,6 +23,7 @@ import dwd
 from ha import HA
 from hillshade import Hillshade
 from mapoverlay import MapOverlay
+from landmarks import Landmarks
 from render import Extent, Renderer
 
 OPTIONS = Path(os.environ.get("OPTIONS_FILE", "/data/options.json"))
@@ -218,7 +219,7 @@ class Radar:
 BASEMAPS = {
     "own": {
         "url": None, "labels": "overlay/{z}/{x}/{y}.png", "own": True,
-        "attribution": "Grenzen: Natural Earth · Orte: GeoNames", "maxNativeZoom": 12, "filter": "",
+        "attribution": "© OpenStreetMap · Natural Earth · GeoNames", "maxNativeZoom": 12, "filter": "",
     },
     "basemapde": {
         "url": "https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
@@ -251,6 +252,7 @@ def basemap_cfg(opt: dict) -> dict:
         b["labels"] = b["labels"].replace("{key}", key)
     if b.get("own"):
         b["labels"] += f"?v={VERSION}"
+        b["base"] = f"base/{{z}}/{{x}}/{{y}}.png?v={VERSION}"
         b["maxNativeZoom"] = min(12, int(opt["max_zoom"]))
     if opt.get("basemap_filter"):
         b["filter"] = str(opt["basemap_filter"])
@@ -317,6 +319,11 @@ def start_background(opt: dict) -> None:
                 MapOverlay(WWW / "overlay", DATA / "geo_cache", wide, pins_of(opt)).ensure(jobs)
             except Exception as e:
                 log.error("Karten-Overlay fehlgeschlagen: %s", e)
+            try:
+                ext = (opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"])
+                Landmarks(WWW / "base", DATA / "geo_cache", jobs[0][0], ext).ensure(jobs)
+            except Exception as e:
+                log.error("Gewässer/Autobahn-Kacheln fehlgeschlagen: %s", e)
         if opt["hillshade"]:
             try:
                 Hillshade(WWW / "hillshade", DATA / "dem_cache", opt["hillshade_strength"]).ensure(jobs)
