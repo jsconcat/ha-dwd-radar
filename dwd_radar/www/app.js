@@ -10,6 +10,7 @@
   var cfg, map, manifest = null, frames = [], times = [], nowIdx = -1, fcEnd = -1;
   var pos = 0, cur = -1;                 // continuous frame position, nearest frame index
   var playing = false, hideTimer = null, resetTimer = null, lastGenerated = null;
+  var realIdx = [], ckT = [], ckU = [];
   var preload = [], radarBl = null, cloudBl = null, userActive = false;
   var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   var DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -306,18 +307,30 @@
     var a = frames[i], b = frames[i + 1] || null;
     radarBl.show(a.u, bnd(a), op(a), b && b.u, b && bnd(b), b && op(b), w);
     var mb = L.latLngBounds(manifest.mbounds);
-    cloudBl.show(a.cc, mb, 1, b && b.cc, mb, 1, w);
+    // clouds: own keyframes, crossfaded by time (independent of interpolated radar frames)
+    var t = timeOfPos(pos), ca = null, cb = null, cw = 0;
+    if (ckT.length) {
+      var lo = 0, hi = ckT.length - 1;
+      if (t <= ckT[0]) ca = ckU[0];
+      else if (t >= ckT[hi]) ca = ckU[hi];
+      else {
+        while (hi - lo > 1) { var m = (lo + hi) >> 1; if (ckT[m] <= t) lo = m; else hi = m; }
+        ca = ckU[lo]; cb = ckU[hi]; cw = (t - ckT[lo]) / (ckT[hi] - ckT[lo]);
+      }
+    }
+    cloudBl.show(ca, mb, 1, cb, mb, 1, cw);
     var n = Math.round(pos);
     if (n !== cur) { cur = n; updateStamp(); }
     // preload the neighbourhood (model frames are not preloaded globally)
-    for (var k = Math.max(0, i - 2); k <= Math.min(frames.length - 1, i + 3); k++) warm(frames[k]);
+    for (var k = Math.max(0, i - 3); k <= Math.min(frames.length - 1, i + 8); k++) warm(frames[k]);
   }
   var warmed = {};
   function warm(f) {
     if (warmed[f.u]) return;
     warmed[f.u] = true;
     var im = new Image(); im.src = f.u; preload.push(im);
-    if (f.cc) { var ic = new Image(); ic.src = f.cc; preload.push(ic); }
+    if (f.c) { var ic = new Image(); ic.src = f.c; preload.push(ic); }
+    if (preload.length > 160) preload.splice(0, preload.length - 160);
   }
 
   // time <-> continuous position
@@ -423,7 +436,7 @@
     var f = frames[cur];
     var txt = f ? ((f.k === 'm' || !sameDay(ms(f.t), Date.now())) ? dayhm(ms(f.t)) : hm(ms(f.t))) : '';
     if (txt !== lastBubble) { $('bubble-t').textContent = txt; lastBubble = txt; }
-    var away = Math.abs(pos - loopStart()) > 0.5;
+    var away = frames.length ? Math.abs(timeOfPos(pos) - times[loopStart()]) > 150000 : false;
     if (away !== lastAway) {
       $('bubble').className = 'bubble' + (away ? ' away' : '');
       $('tl').className = 'tl' + (away ? ' away' : '');
@@ -501,7 +514,7 @@
       if (anim.hold > 0) {
         anim.hold -= dtp;
       } else {
-        var np2 = pos + dtp / cfg.frameMs;
+        var np2 = posOfTime(timeOfPos(pos) + dtp * 300000 / cfg.frameMs);
         if (np2 >= loopEnd()) { np2 = loopEnd(); anim.hold = cfg.holdEndMs; anim.wrap = true; }
         render(np2);
       }
@@ -516,7 +529,15 @@
     anim = { from: pos, to: p, t0: performance.now(), dur: dur || 260, done: done };
     kick();
   }
-  function snap() { glideTo(Math.round(posForStripX(stripX)), 200); }
+  function nearestReal(p) {
+    var t = timeOfPos(p), best = Math.round(p), bd = Infinity;
+    for (var i = 0; i < realIdx.length; i++) {
+      var d = Math.abs(times[realIdx[i]] - t);
+      if (d < bd) { bd = d; best = realIdx[i]; } else if (times[realIdx[i]] > t) break;
+    }
+    return best;
+  }
+  function snap() { glideTo(nearestReal(posForStripX(stripX)), 200); }
   function jump(p) {                     // immediate (no motion), e.g. back to "Aktuell" while hidden
     mode = 'idle';
     render(p);
@@ -619,19 +640,21 @@
     });
     times = frames.map(function (f) { return ms(f.t); });
     // every frame gets a cloud image: own one, else the nearest frame's (no blank background)
-    var lastC = null;
-    frames.forEach(function (f) { f.cc = f.c || lastC; if (f.c) lastC = f.c; });
-    lastC = null;
-    for (var r = frames.length - 1; r >= 0; r--) { if (frames[r].c) lastC = frames[r].c; if (!frames[r].cc) frames[r].cc = lastC; }
+    realIdx = []; ckT = []; ckU = [];
+    frames.forEach(function (f, i) {
+      if (!f.x) realIdx.push(i);
+      if (f.c) { ckT.push(times[i]); ckU.push(f.c); }
+    });
     nowIdx = -1; fcEnd = -1;
     for (var i = 0; i < frames.length; i++) {
+      if (frames[i].x) continue;
       if (frames[i].k === 'o' && frames[i].t === m.now) nowIdx = i;
       if (frames[i].k === 'f') fcEnd = i;
     }
-    if (nowIdx < 0) for (var j = frames.length - 1; j >= 0; j--) if (frames[j].k === 'o') { nowIdx = j; break; }
+    if (nowIdx < 0) for (var j = frames.length - 1; j >= 0; j--) if (frames[j].k === 'o' && !frames[j].x) { nowIdx = j; break; }
     if (fcEnd < 0) fcEnd = nowIdx;
     preload = []; warmed = {};
-    frames.forEach(function (f) { if (f.k !== 'm') warm(f); });
+    frames.forEach(function (f) { if (f.k !== 'm' && !f.x) warm(f); });
     buildStrip();
     cur = -1;
     if (playing) return;

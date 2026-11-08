@@ -61,6 +61,54 @@ def build_lut(opacity: float = 1.0) -> np.ndarray:
     return np.clip(np.round(lut), 0, 255).astype(np.uint8)
 
 
+# WarnWetter-like discrete classes (mm/h lower bound, RGB). First three sampled from the WarnWetter app.
+CLASSES = [
+    (0.1, (126, 251, 253)),   # cyan
+    (0.2, (96, 201, 158)),    # mint
+    (0.5, (67, 151, 66)),     # green
+    (1.0, (36, 112, 44)),     # dark green
+    (2.0, (247, 232, 52)),    # yellow
+    (5.0, (247, 156, 32)),    # orange
+    (10.0, (226, 44, 36)),    # red
+    (20.0, (150, 20, 30)),    # dark red
+    (50.0, (196, 52, 196)),   # magenta
+]
+CLASS_ALPHA = 0.88
+
+
+def classify_png(rate: np.ndarray, opacity: float = 1.0, supersample: int = 2) -> bytes:
+    """Discrete colour classes with smooth (anti-aliased) hard edges.
+
+    The field is upsampled before classification and the result box-filtered back down,
+    so class borders follow smooth curves instead of pixel steps.
+    """
+    r = np.nan_to_num(rate, nan=0.0).astype(np.float32)
+    h, w = r.shape
+    if supersample > 1:
+        lr = np.log(np.maximum(r, 0.0) + 0.02)
+        lr = ndimage.zoom(lr, supersample, order=1, mode="nearest", grid_mode=True)
+        r = np.exp(lr) - 0.02
+    bounds = np.array([c[0] for c in CLASSES], dtype=np.float32)
+    idx = np.digitize(r, bounds)                      # 0 = below first class
+    lut = np.zeros((len(CLASSES) + 1, 4), np.uint8)
+    for i, (_, rgb) in enumerate(CLASSES, start=1):
+        lut[i, :3] = rgb
+        lut[i, 3] = int(round(255 * CLASS_ALPHA * opacity))
+    rgba = lut[idx]
+    img = Image.fromarray(rgba, "RGBA")
+    if supersample > 1:
+        # premultiplied downsampling avoids dark fringes at the transparent border
+        a = rgba[..., 3:4].astype(np.float32) / 255.0
+        pm = np.dstack([rgba[..., :3] * a, a * 255]).astype(np.float32)
+        pm = pm.reshape(h, supersample, w, supersample, 4).mean(axis=(1, 3))
+        al = pm[..., 3:4] / 255.0
+        rgb = np.where(al > 0, pm[..., :3] / np.maximum(al, 1e-6), 0)
+        img = Image.fromarray(np.dstack([rgb, pm[..., 3:4]]).clip(0, 255).round().astype(np.uint8), "RGBA")
+    buf = io.BytesIO()
+    img.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
 @dataclass
 class Extent:
     lat_min: float
@@ -76,7 +124,8 @@ class Renderer:
     geometry); each frame then only needs filtering + one map_coordinates call.
     """
 
-    def __init__(self, extent: Extent, res_m: float, smooth_km: float = 1.0, opacity: float = 1.0):
+    def __init__(self, extent: Extent, res_m: float, smooth_km: float = 1.0, opacity: float = 1.0,
+                 style: str = "classes"):
         self.res = float(res_m)
         x0, x1 = merc_x(extent.lon_min), merc_x(extent.lon_max)
         y0, y1 = merc_y(extent.lat_min), merc_y(extent.lat_max)
@@ -89,6 +138,8 @@ class Renderer:
         self.bounds = [[inv_merc_y(y0), inv_merc_x(x0)], [inv_merc_y(y1), inv_merc_x(x1)]]
         self.smooth_km = smooth_km
         self.lut = build_lut(opacity)
+        self.opacity = opacity
+        self.style = style
         self._grid_key = None
 
     # ---- geometry -----------------------------------------------------
@@ -142,8 +193,19 @@ class Renderer:
         rgba[rr < STOPS[0][0]] = 0
         return rgba
 
+    def png_from_target(self, r: np.ndarray) -> bytes:
+        if self.style == "classes":
+            return classify_png(r, self.opacity)
+        rgba = self.colorize(r)
+        img = Image.fromarray(rgba, "RGBA")
+        buf = io.BytesIO()
+        img.save(buf, "PNG", optimize=True)
+        return buf.getvalue()
+
     def png(self, grid: Grid, rate: np.ndarray) -> tuple[bytes, float]:
         r = self.rate_on_target(grid, rate)
+        if self.style == "classes":
+            return classify_png(r, self.opacity), float(np.nanmax(r)) if np.isfinite(r).any() else 0.0
         rgba = self.colorize(r)
         img = Image.fromarray(rgba, "RGBA")
         buf = io.BytesIO()

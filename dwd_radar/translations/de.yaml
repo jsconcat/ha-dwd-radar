@@ -17,6 +17,12 @@ configuration:
   forecast_days:
     name: Vorhersage (Tage)
     description: 0 = keine Modellvorhersage (nur 2 h Radar-Vorhersage), 1–7 = Tage mit DWD-Modellen (ICON-D2 → ICON-EU → ICON). Mehr Tage = mehr Download.
+  color_style:
+    name: "Farbdarstellung"
+    description: "classes = harte Farbstufen wie WarnWetter, smooth = stufenloser Verlauf"
+  smooth_motion:
+    name: "Flüssige Bewegung (Optical Flow)"
+    description: "Berechnet Zwischenbilder per Bewegungsschätzung: Radar minütlich, Modelle alle 10 bzw. 30 min."
   reset_view_s:
     name: Automatisch zurück zur Startansicht (Sekunden)
     description: Nach Verschieben/Zoomen nach x Sekunden zurück. 0 = aus.

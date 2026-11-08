@@ -29,6 +29,8 @@ from hillshade import Hillshade
 from mapoverlay import MapOverlay
 from landmarks import Landmarks
 from models import ModelStore, TargetGrid, SOURCES
+import flow
+from render import classify_png
 from render import Extent, Renderer, build_lut, LUT_MIN, LUT_MAX, LUT_N, STOPS
 
 OPTIONS = Path(os.environ.get("OPTIONS_FILE", "/data/options.json"))
@@ -67,6 +69,7 @@ def load_options() -> dict:
         "hillshade": True, "hillshade_strength": 1.0,
         "basemap": "own", "carto_key": "", "basemap_filter": "",
         "show_clouds": True, "cloud_opacity": 1.0, "forecast_days": 7,
+        "color_style": "classes", "smooth_motion": True,
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -88,7 +91,7 @@ class Radar:
         self.http = requests.Session()
         self.renderer = Renderer(
             Extent(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"]),
-            opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"])
+            opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"], opt.get("color_style", "classes"))
         self.tg = TargetGrid(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"],
                              opt["extent_lon_max"], 1000.0)
         self.models = ModelStore(self.tg, DATA / "model_cache")
@@ -103,11 +106,13 @@ class Radar:
         st = json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
         self.last_run = datetime.fromisoformat(st["last_run"]) if st.get("last_run") else None
         self.failed_backfill: dict[str, int] = {}
+        self.obs_cache: dict[datetime, np.ndarray] = {}     # target-grid rates of analysis frames
         self.last_error: str | None = None
         self.last_success: datetime | None = None
         self.latency_s: float | None = None
         # a geometry change (extent/resolution) invalidates rendered frames
-        geo = json.dumps([self.renderer.bounds, opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"]])
+        geo = json.dumps([self.renderer.bounds, opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"],
+                          opt.get("color_style", "classes"), bool(opt.get("smooth_motion", True)), "r3"])
         if st.get("geometry") != geo:
             log.info("Ausschnitt/Darstellung geändert – vorhandene Bilder werden neu erzeugt")
             shutil.rmtree(WWW / "frames", ignore_errors=True)
@@ -142,22 +147,61 @@ class Radar:
         leads = None if with_forecast else {0}
         grid, frames = dwd.parse_run(blob, run, leads)
         n = 0
+        rates: dict[int, np.ndarray] = {}
         for fr in frames:
+            r = self.renderer.rate_on_target(grid, fr.rate)
+            rates[fr.lead] = r
             if fr.lead == 0:
+                self.obs_cache[fr.valid] = r.astype(np.float16)
                 path = self.obs_path(fr.valid)
                 if path.exists():
                     continue
             else:
                 path = self.fc_path(run, fr.lead)
-            png, _ = self.renderer.png(grid, fr.rate)
-            atomic_write(path, png)
+            atomic_write(path, self.renderer.png_from_target(r))
             n += 1
-        log.info("Lauf %s: %d MB, %d Bilder erzeugt in %.1f s", run.strftime("%H:%M"),
-                 len(blob) // 1_000_000, n, time.time() - t0)
+        ni = 0
+        if self.o.get("smooth_motion", True):
+            if with_forecast:
+                ls = sorted(rates)
+                for a, b in zip(ls, ls[1:]):
+                    steps = b - a
+                    if steps < 2:
+                        continue
+                    targets = [self.fc_dir / f"{run:%Y%m%d%H%M}" / f"i_{a:03d}_{k:02d}.png" for k in range(1, steps)]
+                    if all(p.exists() for p in targets):
+                        continue
+                    mids = flow.intermediates(rates[a], rates[b], [k / steps for k in range(1, steps)])
+                    for p, m in zip(targets, mids):
+                        atomic_write(p, self.renderer.png_from_target(m))
+                        ni += 1
+            if 0 in rates:
+                ni += self.obs_intermediates(run)
+        log.info("Lauf %s: %d MB, %d Bilder + %d Zwischenbilder in %.1f s", run.strftime("%H:%M"),
+                 len(blob) // 1_000_000, n, ni, time.time() - t0)
         if with_forecast:
             leads_found = sorted(f.lead for f in frames)
             if leads_found and leads_found[-1] < 120:
                 log.warning("Lauf %s enthält nur Leads bis %d min", run.strftime("%H:%M"), leads_found[-1])
+
+    def obs_intermediates(self, t: datetime) -> int:
+        """Motion-interpolated 1-minute frames between t and its 5-minute neighbours (if known)."""
+        n = 0
+        for a, b in ((t - timedelta(minutes=5), t), (t, t + timedelta(minutes=5))):
+            if a not in self.obs_cache or b not in self.obs_cache:
+                continue
+            targets = [self.obs_dir / f"oi_{a + timedelta(minutes=k):%Y%m%d%H%M}.png" for k in range(1, 5)]
+            if all(p.exists() for p in targets):
+                continue
+            mids = flow.intermediates(self.obs_cache[a].astype(np.float32), self.obs_cache[b].astype(np.float32),
+                                      [k / 5 for k in range(1, 5)])
+            for p, m in zip(targets, mids):
+                atomic_write(p, self.renderer.png_from_target(m))
+                n += 1
+        cut = datetime.now(timezone.utc) - timedelta(minutes=self.o["past_minutes"] + 15)
+        for k in [k for k in self.obs_cache if k < cut]:
+            del self.obs_cache[k]
+        return n
 
     def cycle(self) -> None:
         runs = dwd.list_runs(self.http)
@@ -195,7 +239,17 @@ class Radar:
         Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
         return buf.getvalue()
 
+    SMOOTH_PX = {"d2": 1.0, "eu": 2.5, "gl": 4.0}     # model native resolution on the 1 km grid
+
+    def model_rate(self, p: dict) -> np.ndarray:
+        from scipy import ndimage
+        r = self.models.rate(p)
+        sg = self.SMOOTH_PX.get(p["src"], 1.0)
+        return ndimage.gaussian_filter(r, sg, mode="nearest") if sg > 0 else r
+
     def precip_png(self, rate: np.ndarray) -> bytes:
+        if self.o.get("color_style", "classes") == "classes":
+            return classify_png(rate, self.o["radar_opacity"])
         rr = np.nan_to_num(rate, nan=0.0)
         idx = (np.log10(np.maximum(rr, 1e-6)) - LUT_MIN) / (LUT_MAX - LUT_MIN) * (LUT_N - 1)
         rgba = self.lut[np.clip(idx, 0, LUT_N - 1).astype(np.int32)]
@@ -229,15 +283,42 @@ class Radar:
                 # prefer the finer source, then the newer run
                 if old is None or (order.get(src, 9), -run.timestamp()) < (order.get(old["s"], 9), -old["_r"].timestamp()):
                     best[t] = cand
+        # interpolated frames, only where both enclosing real frames come from the same run directory
+        real_ts = sorted(best)
+        import bisect
+        chosen = {f["u"].split("/")[2]: f["s"] for f in best.values()}
+        extra = {}
+        for dname, src in chosen.items():
+            for p in (self.model_dir / dname).glob("pi_*.png"):
+                try:
+                    t = datetime.strptime(p.stem[3:], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+                i = bisect.bisect_left(real_ts, t)
+                if t <= now or i == 0 or i >= len(real_ts) or real_ts[i] == t:
+                    continue
+                a, b = best[real_ts[i - 1]], best[real_ts[i]]
+                if a["u"].split("/")[2] == dname and b["u"].split("/")[2] == dname:
+                    extra[t] = {"t": iso(t), "k": "m", "u": f"frames/model/{dname}/{p.name}", "s": src, "x": 1,
+                                "_r": a["_r"]}
+        best.update(extra)
         frames = [best[t] for t in sorted(best)]
         ts = [datetime.strptime(f["t"], "%Y-%m-%dT%H:%M:%SZ") for f in frames]
         for i, f in enumerate(frames):
             # step length = distance to a neighbour of the same source (1 h or 3 h)
             dt = 1
-            for j in (i - 1, i + 1):
-                if 0 <= j < len(frames) and frames[j]["s"] == f["s"]:
+            real = [j for j in range(max(0, i - 8), min(len(frames), i + 9))
+                    if j != i and frames[j]["s"] == f["s"] and not frames[j].get("x") ]
+            if len(real) >= 1:
+                j = min(real, key=lambda j: abs(j - i))
+                if not f.get("x"):
                     dt = int(round(abs((ts[i] - ts[j]).total_seconds()) / 3600)) or 1
-                    break
+                else:
+                    nxt = [j for j in real if j > i]
+                    if nxt:
+                        prv = [j for j in real if j < i]
+                        if prv:
+                            dt = int(round((ts[nxt[0]] - ts[prv[-1]]).total_seconds() / 3600)) or 1
             f["d"] = dt
         for f in frames:
             f.pop("_r", None)
@@ -253,12 +334,34 @@ class Radar:
         plan = self.models.update(past_start, nowcast_end, int(self.o["forecast_days"]) * 24)
         frames, keep = [], set()
         n_new = 0
+        prev, prev_rate = None, None
         for p in plan:
             d = self.model_dir / f"{p['src']}_{p['run']:%Y%m%d%H}"
             pp, pc = d / f"p_{p['t']:%Y%m%d%H}.png", d / f"c_{p['t']:%Y%m%d%H}.png"
+            rate = None
             if not pp.exists():
-                atomic_write(pp, self.precip_png(self.models.rate(p)))
+                rate = self.model_rate(p)
+                atomic_write(pp, self.precip_png(rate))
                 n_new += 1
+            # motion-interpolated frames between this and the previous step of the same source
+            if self.o.get("smooth_motion", True) and prev is not None and prev["src"] == p["src"] \
+                    and prev["run"] == p["run"]:
+                nsub = 6
+                span = p["t"] - prev["t"]
+                ts = [prev["t"] + span * k / nsub for k in range(1, nsub)]
+                targets = [d / f"pi_{t:%Y%m%d%H%M}.png" for t in ts]
+                if not all(x.exists() for x in targets):
+                    if rate is None:
+                        rate = self.model_rate(p)
+                    if prev_rate is None:
+                        prev_rate = self.model_rate(prev)
+                    mids = flow.intermediates(prev_rate, rate, [k / nsub for k in range(1, nsub)])
+                    for x, m in zip(targets, mids):
+                        atomic_write(x, self.precip_png(m))
+                        n_new += 1
+                for t, x in zip(ts, targets):
+                    frames.append({"t": iso(t), "k": "m", "u": f"frames/model/{d.name}/{x.name}", "s": p["src"],
+                                   "d": p["dt"], "x": 1})
             f = {"t": iso(p["t"]), "k": "m", "u": f"frames/model/{d.name}/{pp.name}", "s": p["src"], "d": p["dt"]}
             if self.o.get("show_clouds"):
                 cc = self.models.cloud(p)
@@ -268,6 +371,7 @@ class Radar:
                     f["c"] = f"frames/model/{d.name}/{pc.name}"
             frames.append(f)
             keep.add(d.name)
+            prev, prev_rate = p, rate
         self.model_frames = frames
         if n_new:
             log.info("Modellbilder: %d neu, %d gesamt bis %s (Download 24 h: %.0f MB)", n_new, len(frames),
@@ -285,7 +389,7 @@ class Radar:
         tag = rd.run.strftime("%Y%m%d%H") if rd else "x"
         keep = set()
         for f in frames:
-            if f["k"] == "m":
+            if f["k"] == "m" or f.get("x"):
                 continue
             t = datetime.strptime(f["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             p = self.cloud_dir / f"c_{t:%Y%m%d%H%M}_{tag}.png"
@@ -315,20 +419,43 @@ class Radar:
             if t < keep_from:
                 p.unlink(missing_ok=True)
                 del obs[t]
+        inter = {}
+        for p in self.obs_dir.glob("oi_*.png") if self.obs_dir.exists() else []:
+            try:
+                t = datetime.strptime(p.stem[3:], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if t < keep_from:
+                p.unlink(missing_ok=True)
+            elif newest_obs and t < newest_obs:
+                inter[t] = p
         # forecasts: current run + previous one (clients may still load it)
         runs_fc = sorted(p for p in self.fc_dir.glob("*") if p.is_dir()) if self.fc_dir.exists() else []
         for p in runs_fc[:-2]:
             shutil.rmtree(p, ignore_errors=True)
-        frames = [{"t": iso(t), "k": "o", "u": f"frames/obs/{p.name}"} for t, p in sorted(obs.items())]
+        allobs = [(t, p, False) for t, p in obs.items()] + [(t, p, True) for t, p in inter.items()]
+        frames = []
+        for t, p, x in sorted(allobs, key=lambda e: e[0]):
+            f = {"t": iso(t), "k": "o", "u": f"frames/obs/{p.name}"}
+            if x:
+                f["x"] = 1
+            frames.append(f)
         fc_run = None
         if self.o["show_forecast"] and self.last_run:
             d = self.fc_dir / f"{self.last_run:%Y%m%d%H%M}"
             if d.is_dir():
                 fc_run = self.last_run
-                for p in sorted(d.glob("f_*.png")):
-                    lead = int(p.stem[2:])
-                    t = self.last_run + timedelta(minutes=lead)
-                    frames.append({"t": iso(t), "k": "f", "u": f"frames/fc/{d.name}/{p.name}"})
+                fc = []
+                for p in d.glob("f_*.png"):
+                    fc.append((self.last_run + timedelta(minutes=int(p.stem[2:])), p, False))
+                for p in d.glob("i_*.png"):
+                    _, lead, k = p.stem.split("_")
+                    fc.append((self.last_run + timedelta(minutes=int(lead) + int(k)), p, True))
+                for t, p, x in sorted(fc, key=lambda e: e[0]):
+                    f = {"t": iso(t), "k": "f", "u": f"frames/fc/{d.name}/{p.name}"}
+                    if x:
+                        f["x"] = 1
+                    frames.append(f)
         last_t = frames[-1]["t"] if frames else ""
         frames += [f for f in self.model_frames if f["t"] > last_t]
         self.attach_clouds(frames)

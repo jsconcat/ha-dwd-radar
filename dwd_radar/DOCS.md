@@ -25,6 +25,8 @@ sie als Leaflet-Seite bereit: `/local/dwd-radar/index.html` (iframe-Karte im Das
 | `stale_minutes` | ab diesem Datenalter Hinweis „Stand …“ |
 | `show_clouds` / `cloud_opacity` | Wolken aus ICON-D2/EU/ICON (Modell, kein Satellit) |
 | `forecast_days` | 0 = keine Modellvorhersage, 1–7 Tage (nach den 2 h Radar-Nowcast) |
+| `color_style` | `classes` = feste Farbstufen wie WarnWetter, `smooth` = stufenloser Verlauf |
+| `smooth_motion` | Zwischenbilder per Optical Flow (Radar 1 min, Modelle 10/30 min). Kostet CPU und etwas Speicher |
 | `basemap` | `own` (Grenzen/Orte/Gewässer/Autobahnen selbst erzeugt), `basemapde`, `carto` (Key), `osm` |
 | `hillshade*` | Relief aus offenen Höhendaten (einmalig erzeugt) |
 

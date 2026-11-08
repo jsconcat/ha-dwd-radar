@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+- Farbstufen wie in der WarnWetter-App: 9 feste Klassen (0,1 … 50 mm/h) mit harten, aber geglätteten Kanten (Supersampling). Option `color_style` (classes/smooth)
+- Optical Flow (OpenCV DIS): Zwischenbilder per Bewegungsschätzung – Radar minütlich, Modelle alle 10 min (1-h-Schritte) bzw. 30 min (3-h-Schritte). Option `smooth_motion`
+- Modelle werden je nach Auflösung vorgeglättet (ICON-D2 schwach, ICON-EU/ICON stärker), keine Pixeltreppen mehr
+- Wolken werden unabhängig von den Radarbildern zeitbasiert überblendet
+- Wiedergabe zeitbasiert (5 min Daten pro `frame_ms`), Einrasten nur auf echte Messzeitpunkte
+
 ## 0.7.4
 - Fix: ICON-D2-Verzeichnisse enthalten auch Ikosaeder-Dateien – es werden nur noch regular-lat-lon-Dateien verwendet (Fehler „KeyError: Ni“)
 

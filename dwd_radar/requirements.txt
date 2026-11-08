@@ -6,3 +6,4 @@ pillow==11.2.1
 requests==2.32.3
 eccodes==2.50.0
 eccodeslib==2.50.0.34
+opencv-python-headless==4.11.0.86

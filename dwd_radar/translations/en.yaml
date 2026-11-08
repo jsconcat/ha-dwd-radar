@@ -11,6 +11,12 @@ configuration:
     name: Additional pins
   forecast_days:
     name: Forecast (days, 0–7)
+  color_style:
+    name: "Colour style"
+    description: "classes = discrete colour steps like WarnWetter, smooth = continuous gradient"
+  smooth_motion:
+    name: "Smooth motion (optical flow)"
+    description: "Motion-interpolated frames: radar every minute, models every 10/30 min."
   reset_view_s:
     name: Auto-return to start view (s, 0 = off)
   zoom:
