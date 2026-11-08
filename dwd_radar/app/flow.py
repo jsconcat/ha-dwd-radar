@@ -6,18 +6,23 @@ warping A forward by tau*F and B backward by (1-tau)*F and blending both.
 """
 from __future__ import annotations
 
+import threading
+
 import cv2
 import numpy as np
 
-_dis = None
+cv2.setNumThreads(1)                 # radar and model threads both use this module; keep CPU load bounded
+_local = threading.local()
+_lock = threading.Lock()             # OpenCV objects are not thread-safe; serialize all calls
 
 
 def _engine():
-    global _dis
-    if _dis is None:
-        _dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
-        _dis.setUseSpatialPropagation(True)
-    return _dis
+    dis = getattr(_local, "dis", None)
+    if dis is None:
+        dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+        dis.setUseSpatialPropagation(True)
+        _local.dis = dis
+    return dis
 
 
 def _to_u8(r: np.ndarray) -> np.ndarray:
@@ -36,6 +41,11 @@ def intermediates(a: np.ndarray, b: np.ndarray, taus: list[float]) -> list[np.nd
     h, w = a.shape
     if not (has_rain(a) or has_rain(b)):
         return [np.zeros_like(a) for _ in taus]
+    with _lock:
+        return _interp(a, b, taus, h, w)
+
+
+def _interp(a, b, taus, h, w):
     flow = _engine().calc(_to_u8(a), _to_u8(b), None)          # displacement A -> B (px)
     # smooth the flow a bit: large-scale motion, no jitter
     flow = cv2.GaussianBlur(flow, (0, 0), 3)

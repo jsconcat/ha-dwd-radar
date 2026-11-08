@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.1
+- Fix: Absturz („corrupted size vs. prev_size“) – OpenCV-Optical-Flow wurde gleichzeitig aus Radar- und Modell-Thread benutzt; jetzt serialisiert, OpenCV auf 1 Thread begrenzt
+
 ## 0.8.0
 - Farbstufen wie in der WarnWetter-App: 9 feste Klassen (0,1 … 50 mm/h) mit harten, aber geglätteten Kanten (Supersampling). Option `color_style` (classes/smooth)
 - Optical Flow (OpenCV DIS): Zwischenbilder per Bewegungsschätzung – Radar minütlich, Modelle alle 10 min (1-h-Schritte) bzw. 30 min (3-h-Schritte). Option `smooth_motion`
