@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+- Stufenlose Anzeige: Überblendung zwischen benachbarten Bildern passend zur Zeitleisten-Position (Wischen, Schwung, Einrasten, Play)
+- Kein Flackern mehr: Bilder werden erst nach dem Dekodieren eingeblendet, bis dahin bleibt das vorherige sichtbar; Zeitpunkte ohne Wolkenbild nutzen das nächstgelegene
+- Vorhersage-Bereich der Zeitleiste halb so breit (24 h ≈ bisher 12 h)
+
 ## 0.6.2
 - Zeitleiste flüssig: Bewegung per requestAnimationFrame, Schwung beim Loslassen, weiches Einrasten, Bildwechsel beim Ziehen gedrosselt und asynchron dekodiert, keine Layout-Messungen während der Bewegung
 

@@ -1,14 +1,16 @@
-/* DWD Regenradar – Anzeige. Lädt nur fertige PNGs, keine Rechenarbeit im Browser.
- * - Standard: pausiert auf "Aktuell". Play spielt Aktuell .. +2 h (Radar-Vorhersage) in Schleife.
- * - Zeitleiste mit festem Mittelpunkt: der Zeitstreifen wird darunter verschoben.
+/* DWD Regenradar – Anzeige. Lädt nur fertige PNGs, keine Rechenarbeit im Browser außer Überblendung.
+ * - Kontinuierliche Zeitposition: zwischen zwei Bildern wird passend zur Position überblendet.
+ * - Standard: pausiert auf "Aktuell". Play läuft stufenlos Aktuell .. +2 h in Schleife.
+ * - Zeitleiste mit festem Mittelpunkt, Blöcke je Quelle/Auflösung, Schwung + weiches Einrasten.
  * - URL-Parameter (pro Dashboard-Karte): days, return, zoom, lat, lon
  */
 (function () {
   'use strict';
 
-  var cfg, map, manifest = null, all = [], frames = [], nowIdx = -1, fcEnd = -1, cur = -1;
-  var playing = false, timer = null, hideTimer = null, resetTimer = null, lastGenerated = null;
-  var preload = [], radarSw = null, cloudSw = null, userActive = false;
+  var cfg, map, manifest = null, frames = [], times = [], nowIdx = -1, fcEnd = -1;
+  var pos = 0, cur = -1;                 // continuous frame position, nearest frame index
+  var playing = false, hideTimer = null, resetTimer = null, lastGenerated = null;
+  var preload = [], radarBl = null, cloudBl = null, userActive = false;
   var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   var DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
@@ -36,7 +38,6 @@
   }
 
   // ---------------------------------------------------------------- UI DOM
-  // built here (not in index.html, which browsers may cache for weeks)
   function buildDom() {
     var bar = $('bar');
     bar.innerHTML =
@@ -112,11 +113,8 @@
     }
     map.attributionControl.addAttribution('Radar/Modelle: © Deutscher Wetterdienst');
 
-    var o = function (p) { return { opacity: 0, interactive: false, pane: p }; };
-    radarSw = new Swapper(L.imageOverlay(BLANK, b, o('radar')).addTo(map),
-                          L.imageOverlay(BLANK, b, o('radar')).addTo(map));
-    cloudSw = new Swapper(L.imageOverlay(BLANK, b, o('clouds')).addTo(map),
-                          L.imageOverlay(BLANK, b, o('clouds')).addTo(map));
+    radarBl = new Blender('radar', b);
+    cloudBl = new Blender('clouds', b);
 
     cfg.pins.forEach(function (p) {
       L.marker([p.lat, p.lon], { icon: pinIcon(p), interactive: false, keyboard: false,
@@ -140,45 +138,115 @@
       cfg.resetViewS * 1000);
   }
 
-  // double-buffered overlay: the next image becomes visible only once loaded
-  function Swapper(a, b) {
-    this.a = a; this.b = b; this.front = a; this.url = null;
-    [a, b].forEach(function (o) { var el = o.getElement(); if (el) el.decoding = 'async'; });
+  // ------------------------------------------------- cross-fading image layer
+  // A small pool of image overlays. An image becomes visible only once it is loaded AND decoded;
+  // until then the previously visible images stay (no flicker).
+  function Blender(paneName, bounds) {
+    this.pool = [];
+    for (var k = 0; k < 4; k++) {
+      var ov = L.imageOverlay(BLANK, bounds, { opacity: 0, interactive: false, pane: paneName }).addTo(map);
+      ov._u = null; ov._ready = false; ov._used = 0; ov._op = 0;
+      this.pool.push(ov);
+    }
+    this.want = null;
   }
-  Swapper.prototype.set = function (url, op, bounds, isCurrent) {
-    var self = this;
-    if (!url) { this.a.setOpacity(0); this.b.setOpacity(0); this.url = null; return; }
-    if (url === this.url) { this.front.setOpacity(op); return; }
-    this.url = url;
-    var back = this.front === this.a ? this.b : this.a, done = false;
-    var swap = function () {
-      if (done || !isCurrent()) return;
-      done = true;
-      back.setOpacity(op);
-      self.front.setOpacity(0);
-      self.front = back;
+  Blender.prototype._get = function (url, bounds, keep) {
+    var i, ov;
+    for (i = 0; i < this.pool.length; i++) if (this.pool[i]._u === url) { this.pool[i]._used = performance.now(); return this.pool[i]; }
+    var best = null;
+    for (i = 0; i < this.pool.length; i++) {
+      ov = this.pool[i];
+      if (keep.indexOf(ov) >= 0 || ov._op > 0) continue;
+      if (!best || ov._used < best._used) best = ov;
+    }
+    if (!best) return null;
+    ov = best;
+    ov._u = url; ov._ready = false; ov._used = performance.now();
+    ov.setBounds(bounds);
+    var self = this, img = ov.getElement();
+    img.onload = function () {
+      var fin = function () { if (ov._u === url) { ov._ready = true; self.apply(); } };
+      if (img.decode) img.decode().then(fin, fin); else fin();
     };
-    if (bounds) back.setBounds(bounds);
-    back.once('load', swap);
-    back.setUrl(url);
-    var img = back.getElement();
-    if (img && img.complete && img.naturalWidth > 1 && img.src.indexOf(url) >= 0) swap();
+    ov.setUrl(url);
+    return ov;
+  };
+  // ua/ub: urls of the two neighbouring frames, w: blend weight of b (0..1)
+  Blender.prototype.show = function (ua, ba, oa, ub, bb, ob, w) {
+    this.want = { ua: ua, ba: ba, oa: oa, ub: ub, bb: bb, ob: ob, w: w };
+    this.apply();
+  };
+  Blender.prototype.apply = function () {
+    var q = this.want;
+    if (!q) return;
+    var keep = [];
+    var A = q.ua ? this._get(q.ua, q.ba, keep) : null;
+    if (A) keep.push(A);
+    var B = (q.ub && q.w > 0.002) ? this._get(q.ub, q.bb, keep) : null;
+    var vis = [];
+    var w = q.w;
+    if (A && A._ready && B && B._ready) {
+      vis = [[A, Math.cos(w * Math.PI / 2) * q.oa], [B, Math.sin(w * Math.PI / 2) * q.ob]];
+    } else if (A && A._ready && (!B || w < 0.5)) {
+      vis = [[A, q.oa]];
+    } else if (B && B._ready) {
+      vis = [[B, q.ob]];
+    } else if (A && A._ready) {
+      vis = [[A, q.oa]];
+    } else if (!q.ua && !q.ub) {
+      vis = [];
+    } else {
+      return;                               // nothing ready yet: keep what is visible
+    }
+    for (var i = 0; i < this.pool.length; i++) {
+      var ov = this.pool[i], op = 0;
+      for (var j = 0; j < vis.length; j++) if (vis[j][0] === ov) op = vis[j][1];
+      if (Math.abs(op - ov._op) > 0.004 || (op === 0) !== (ov._op === 0)) { ov.setOpacity(op); ov._op = op; }
+    }
   };
 
-  // ---------------------------------------------------------------- frames
-  function show(i, keepStrip) {
-    if (i < 0 || i >= frames.length) return;
-    cur = i;
-    var f = frames[i];
-    var isCur = function () { return cur === i; };
-    radarSw.set(f.u, f.k === 'o' ? 1 : 0.85, L.latLngBounds(f.k === 'm' ? manifest.mbounds : manifest.bounds), isCur);
-    cloudSw.set(f.c || null, 1, L.latLngBounds(manifest.mbounds), isCur);
-    updateStamp();
-    if (!keepStrip) { placeStrip(ms(f.t), true); updateBubble(ms(f.t)); }
+  // ------------------------------------------------------------- rendering
+  function op(f) { return f.k === 'o' ? 1 : 0.85; }
+  function bnd(f) { return L.latLngBounds(f.k === 'm' ? manifest.mbounds : manifest.bounds); }
+  function render(p) {
+    if (!frames.length) return;
+    pos = Math.max(0, Math.min(frames.length - 1, p));
+    var i = Math.floor(pos), w = pos - i;
+    if (i >= frames.length - 1) { i = frames.length - 1; w = 0; }
+    var a = frames[i], b = frames[i + 1] || null;
+    radarBl.show(a.u, bnd(a), op(a), b && b.u, b && bnd(b), b && op(b), w);
+    var mb = L.latLngBounds(manifest.mbounds);
+    cloudBl.show(a.cc, mb, 1, b && b.cc, mb, 1, w);
+    var n = Math.round(pos);
+    if (n !== cur) { cur = n; updateStamp(); }
+    // preload the neighbourhood (model frames are not preloaded globally)
+    for (var k = Math.max(0, i - 2); k <= Math.min(frames.length - 1, i + 3); k++) warm(frames[k]);
+  }
+  var warmed = {};
+  function warm(f) {
+    if (warmed[f.u]) return;
+    warmed[f.u] = true;
+    var im = new Image(); im.src = f.u; preload.push(im);
+    if (f.cc) { var ic = new Image(); ic.src = f.cc; preload.push(ic); }
+  }
+
+  // time <-> continuous position
+  function posOfTime(t) {
+    if (!times.length) return 0;
+    if (t <= times[0]) return 0;
+    var n = times.length - 1;
+    if (t >= times[n]) return n;
+    var lo = 0, hi = n;
+    while (hi - lo > 1) { var m = (lo + hi) >> 1; if (times[m] <= t) lo = m; else hi = m; }
+    return lo + (t - times[lo]) / (times[hi] - times[lo]);
+  }
+  function timeOfPos(p) {
+    var i = Math.floor(p), w = p - i;
+    if (i >= times.length - 1) return times[times.length - 1];
+    return times[i] + (times[i + 1] - times[i]) * w;
   }
 
   function sourceLabel(f) { return (manifest.sources && manifest.sources[f.s]) || 'Modell'; }
-
   function updateStamp() {
     var el = $('stamp'), f = frames[cur];
     if (!f) { $('stamp-time').textContent = 'keine Daten'; return; }
@@ -194,59 +262,31 @@
     el.className = 'stamp' + (f.k !== 'o' ? ' fc' : '') + (stale ? ' stale' : '');
   }
 
-  // -------------------------------------------------------------- playback
-  function loopStart() { return nowIdx >= 0 ? nowIdx : 0; }
-  function loopEnd() { return fcEnd >= 0 ? fcEnd : loopStart(); }
-  function delayFor(i) {
-    if (i === loopStart()) return cfg.holdNowMs;
-    if (i === loopEnd()) return cfg.holdEndMs;
-    return cfg.frameMs;
-  }
-  function tick() {
-    clearTimeout(timer);
-    if (!playing || !frames.length || document.hidden) return;
-    var next = (cur < loopStart() || cur >= loopEnd()) ? loopStart() : cur + 1;
-    show(next);
-    timer = setTimeout(tick, delayFor(next));
-  }
-  function setPlaying(p) {
-    playing = p;
-    $('ico-pause').style.display = p ? '' : 'none';
-    $('ico-play').style.display = p ? 'none' : '';
-    clearTimeout(timer);
-    if (p) {
-      if (cur < loopStart() || cur >= loopEnd()) show(loopStart());
-      timer = setTimeout(tick, delayFor(cur));
-    }
-  }
-
   // --------------------------------------------- timeline (fixed centre)
-  // The strip is split into blocks per data source/resolution (like WarnWetter):
-  // each block has its own scale; the time between blocks is compressed into a gap.
   var GAP = 14, PAD = 6;
   var GROUPS = {
     radar: { k: 2.0, label: 'Radar · 1 km · 5 min', cls: 'g-radar' },
-    'd2-1': { k: 0.6, label: 'ICON-D2 · 2 km · 1 h', cls: 'g-d2' },
-    'eu-1': { k: 0.45, label: 'ICON-EU · 7 km · 1 h', cls: 'g-eu' },
-    'eu-3': { k: 0.25, label: 'ICON-EU · 7 km · 3 h', cls: 'g-eu3' },
-    'gl-1': { k: 0.45, label: 'ICON · 13 km · 1 h', cls: 'g-gl' },
-    'gl-3': { k: 0.25, label: 'ICON · 13 km · 3 h', cls: 'g-gl3' }
+    'd2-1': { k: 0.3, label: 'ICON-D2 · 2 km · 1 h', cls: 'g-d2' },
+    'eu-1': { k: 0.22, label: 'ICON-EU · 7 km · 1 h', cls: 'g-eu' },
+    'eu-3': { k: 0.12, label: 'ICON-EU · 7 km · 3 h', cls: 'g-eu3' },
+    'gl-1': { k: 0.22, label: 'ICON · 13 km · 1 h', cls: 'g-gl' },
+    'gl-3': { k: 0.12, label: 'ICON · 13 km · 3 h', cls: 'g-gl3' }
   };
-  var blocks = [], stripX = 0;
+  var blocks = [], stripX = 0, labelEls = [], labelW = [], tlW = 0;
   function groupKey(f) { return f.k === 'm' ? f.s + '-' + (f.d >= 3 ? 3 : 1) : 'radar'; }
 
   function buildBlocks() {
     blocks = [];
     var x = PAD;
     frames.forEach(function (f, i) {
-      var key = groupKey(f), t = ms(f.t), b = blocks[blocks.length - 1];
+      var key = groupKey(f), t = times[i], b = blocks[blocks.length - 1];
       if (!b || b.key !== key) {
         if (b) x = b.x0 + (b.t1 - b.t0) * b.k + PAD * 2 + GAP;
-        var g = GROUPS[key] || { k: 0.3, label: key, cls: '' };
-        b = { key: key, k: g.k / 60000, label: g.label, cls: g.cls, t0: t, t1: t, i0: i, i1: i, x0: x };
+        var g = GROUPS[key] || { k: 0.15, label: key, cls: '' };
+        b = { key: key, k: g.k / 60000, label: g.label, cls: g.cls, t0: t, t1: t, x0: x };
         blocks.push(b);
       }
-      b.t1 = t; b.i1 = i;
+      b.t1 = t;
     });
   }
   function xOf(t) {
@@ -254,97 +294,46 @@
       var b = blocks[i];
       if (t <= b.t1 || i === blocks.length - 1) return b.x0 + (Math.max(t, b.t0) - b.t0) * b.k;
       var nb = blocks[i + 1];
-      if (t < nb.t0) {                 // between blocks: inside the gap
-        var f = (t - b.t1) / (nb.t0 - b.t1);
+      if (t < nb.t0) {
         var xe = b.x0 + (b.t1 - b.t0) * b.k;
-        return xe + f * (nb.x0 - xe);
+        return xe + (t - b.t1) / (nb.t0 - b.t1) * (nb.x0 - xe);
       }
     }
     return 0;
   }
-  function tOf(x) {
+  function tOf(x) {                      // continuous: the gap maps linearly onto the time between blocks
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i], xe = b.x0 + (b.t1 - b.t0) * b.k;
       if (x <= xe || i === blocks.length - 1) return b.t0 + Math.max(0, x - b.x0) / b.k;
       var nb = blocks[i + 1];
-      if (x < nb.x0) return (x - xe) < (nb.x0 - xe) / 2 ? b.t1 : nb.t0;
+      if (x < nb.x0) return b.t1 + (x - xe) / (nb.x0 - xe) * (nb.t0 - b.t1);
     }
     return 0;
   }
   function stripEnd() { var b = blocks[blocks.length - 1]; return b ? b.x0 + (b.t1 - b.t0) * b.k : 0; }
-  var labelEls = [], labelW = [], tlW = 0;
+  function measure() {
+    tlW = $('tl').clientWidth || tlW || 300;
+    labelEls = Array.prototype.slice.call($('strip').querySelectorAll('.blabel'));
+    labelW = labelEls.map(function (e) { return e.offsetWidth || 120; });
+  }
   function moveStrip(x) {
     stripX = x;
     $('strip').style.transform = 'translate3d(' + stripX.toFixed(1) + 'px,0,0)';
-    // keep each block label visible while its block is on screen ("sticky"); no layout reads here
     for (var i = 0; i < labelEls.length && i < blocks.length; i++) {
       var b = blocks[i], bl = b.x0 - PAD, bw = (b.t1 - b.t0) * b.k + 2 * PAD;
       var off = Math.max(0, Math.min(bw - labelW[i] - 12, -stripX - bl));
       labelEls[i].style.transform = 'translate3d(' + off.toFixed(1) + 'px,0,0)';
     }
   }
-  function measure() {
-    tlW = $('tl').clientWidth || tlW || 300;
-    labelEls = Array.prototype.slice.call($('strip').querySelectorAll('.blabel'));
-    labelW = labelEls.map(function (e) { return e.offsetWidth || 120; });
-  }
+  function stripXForPos(p) { return tlW / 2 - xOf(timeOfPos(p)); }
+  function posForStripX(x) { return posOfTime(tOf(tlW / 2 - x)); }
 
-  // --- smooth motion: everything visual happens in requestAnimationFrame
-  var anim = null, rafId = 0, lastSwap = 0, pendingIdx = -1;
-  function frameAtX(x) { return nearestFrame(tOf(tlW / 2 - x)); }
-  function loop(ts) {
-    rafId = 0;
-    if (anim) {
-      if (anim.type === 'tween') {
-        var p = Math.min(1, (ts - anim.t0) / anim.dur), e = 1 - Math.pow(1 - p, 3);
-        moveStrip(anim.from + (anim.to - anim.from) * e);
-        if (p >= 1) { var done = anim.done; anim = null; if (done) done(); }
-      } else if (anim.type === 'fling') {
-        var dt = Math.min(50, ts - anim.last); anim.last = ts;
-        var nx = stripX + anim.v * dt;
-        var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD;
-        if (nx > hi || nx < lo) { nx = Math.max(lo, Math.min(hi, nx)); anim.v = 0; }
-        moveStrip(nx);
-        anim.v *= Math.pow(0.94, dt / 16);
-        if (Math.abs(anim.v) < 0.03) { anim = null; snap(); }
-      }
-    }
-    // frame/bubble follow the strip position, image swaps rate-limited while moving
-    var follow = dragging || (anim && anim.follow);
-    if (follow) {
-      var i = frameAtX(stripX);
-      updateBubble(tOf(tlW / 2 - stripX));
-      if (i !== cur && i !== pendingIdx) pendingIdx = i;
-    }
-    var moving = !!anim || dragging;
-    if (pendingIdx >= 0 && (!moving || ts - lastSwap > 120)) {
-      lastSwap = ts; var k = pendingIdx; pendingIdx = -1;
-      if (k !== cur) show(k, true);
-    }
-    if (anim || dragging || pendingIdx >= 0) rafId = requestAnimationFrame(loop);
-  }
-  function kick() { if (!rafId) rafId = requestAnimationFrame(loop); }
-  function animateTo(x, dur, done, follow) {
-    anim = { type: 'tween', from: stripX, to: x, t0: performance.now(), dur: dur || 220, done: done, follow: !!follow };
-    kick();
-  }
-  function snap() {
-    var i = frameAtX(stripX);
-    animateTo(tlW / 2 - xOf(ms(frames[i].t)), 200, function () { if (i !== cur) show(i, true); updateBubble(ms(frames[i].t)); }, true);
-  }
-  function placeStrip(t, smooth) {
-    if (!tlW) measure();
-    var x = tlW / 2 - xOf(t);
-    if (smooth && $('bar') && !$('bar').classList.contains('hidden')) animateTo(x, 260);
-    else { anim = null; moveStrip(x); }
-  }
-  var dragging = false;
   var lastBubble = '', lastAway = null;
-  function updateBubble(t) {
-    var i = nearestFrame(t), f = frames[i];
+  function updateBubble() {
+    var f = frames[cur];
     var txt = f ? ((f.k === 'm' || !sameDay(ms(f.t), Date.now())) ? dayhm(ms(f.t)) : hm(ms(f.t))) : '';
     if (txt !== lastBubble) { $('bubble-t').textContent = txt; lastBubble = txt; }
-    var away = Math.abs(xOf(t) - xOf(ms(frames[loopStart()].t))) > 45;
+    var away = Math.abs(pos - loopStart()) > 0.5;
     if (away !== lastAway) {
       $('bubble').className = 'bubble' + (away ? ' away' : '');
       $('tl').className = 'tl' + (away ? ' away' : '');
@@ -356,16 +345,15 @@
     var strip = $('strip');
     if (!frames.length) { strip.innerHTML = ''; return; }
     buildBlocks();
-    var tNow = ms(frames[loopStart()].t), tFc = ms(frames[loopEnd()].t);
-    var html = [];
-    var px = function (v) { return v.toFixed(1) + 'px'; };
+    var tNow = times[loopStart()], tFc = times[loopEnd()];
+    var html = [], px = function (v) { return v.toFixed(1) + 'px'; };
     var seg = function (a, b, cls) {
       html.push('<div class="seg ' + cls + '" style="left:' + px(xOf(a)) + ';width:' + px(Math.max(0, xOf(b) - xOf(a))) + '"></div>');
     };
     var tick = function (t, cls, label) {
       html.push('<div class="tick ' + cls + '" style="left:' + px(xOf(t)) + '"' + (label ? ' data-t="' + label + '"' : '') + '></div>');
     };
-    blocks.forEach(function (b, bi) {
+    blocks.forEach(function (b) {
       var xe = b.x0 + (b.t1 - b.t0) * b.k;
       html.push('<div class="block ' + b.cls + '" style="left:' + px(b.x0 - PAD) + ';width:' + px(xe - b.x0 + 2 * PAD) +
         '"><span class="blabel">' + b.label + '</span></div>');
@@ -375,10 +363,10 @@
       } else {
         seg(b.t0, b.t1, 'model ' + b.cls);
       }
-      // ticks: density depends on the block scale
       var pxh = b.k * 3600000, minor, lab;
-      if (pxh >= 100) { minor = 15; lab = 60; } else if (pxh >= 30) { minor = 60; lab = 360; } else { minor = 180; lab = 720; }
-      // grid aligned to local clock time (local midnight + n * step)
+      if (pxh >= 100) { minor = 15; lab = 60; }
+      else if (pxh >= 15) { minor = 60; lab = 360; }
+      else { minor = 180; lab = 720; }
       var step = minor * 60000, mid = new Date(b.t0); mid.setHours(0, 0, 0, 0);
       var t = mid.getTime() + Math.ceil((b.t0 - mid.getTime()) / step) * step;
       for (; t <= b.t1; t += step) {
@@ -394,13 +382,70 @@
     measure();
   }
 
-  function nearestFrame(t) {
-    var best = 0, bd = Infinity;
-    for (var i = 0; i < frames.length; i++) {
-      var d = Math.abs(ms(frames[i].t) - t);
-      if (d < bd) { bd = d; best = i; }
+  function nearestFrame(t) { return Math.round(posOfTime(t)); }
+
+  // ------------------------------------------------ motion (one rAF loop)
+  // modes: drag (finger), fling (momentum), tween (eased glide), play (stufenlos), idle
+  var mode = 'idle', anim = null, rafId = 0, drag = null;
+  function kick() { if (!rafId) rafId = requestAnimationFrame(loop); }
+  function barVisible() { return !$('bar').classList.contains('hidden'); }
+  function loop(ts) {
+    rafId = 0;
+    var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD;
+    if (mode === 'tween') {
+      var p = Math.min(1, (ts - anim.t0) / anim.dur), e = 1 - Math.pow(1 - p, 3);
+      var np = anim.from + (anim.to - anim.from) * e;
+      render(np); moveStrip(stripXForPos(np));
+      if (p >= 1) { mode = 'idle'; if (anim.done) anim.done(); }
+    } else if (mode === 'fling') {
+      var dt = Math.min(50, ts - anim.last); anim.last = ts;
+      var nx = stripX + anim.v * dt;
+      if (nx > hi || nx < lo) { nx = Math.max(lo, Math.min(hi, nx)); anim.v = 0; }
+      moveStrip(nx); render(posForStripX(nx));
+      anim.v *= Math.pow(0.94, dt / 16);
+      if (Math.abs(anim.v) < 0.03) snap();
+    } else if (mode === 'drag') {
+      render(posForStripX(stripX));
+    } else if (mode === 'play') {
+      var dtp = Math.min(100, ts - anim.last); anim.last = ts;
+      if (anim.hold > 0) {
+        anim.hold -= dtp;
+      } else {
+        var np2 = pos + dtp / cfg.frameMs;
+        if (np2 >= loopEnd()) { np2 = loopEnd(); anim.hold = cfg.holdEndMs; anim.wrap = true; }
+        render(np2);
+      }
+      if (anim.hold <= 0 && anim.wrap) { anim.wrap = false; render(loopStart()); anim.hold = cfg.holdNowMs; }
+      if (barVisible()) moveStrip(stripXForPos(pos));
     }
-    return best;
+    updateBubble();
+    if (mode !== 'idle' && !document.hidden) rafId = requestAnimationFrame(loop);
+  }
+  function glideTo(p, dur, done) {
+    mode = 'tween';
+    anim = { from: pos, to: p, t0: performance.now(), dur: dur || 260, done: done };
+    kick();
+  }
+  function snap() { glideTo(Math.round(posForStripX(stripX)), 200); }
+  function jump(p) {                     // immediate (no motion), e.g. back to "Aktuell" while hidden
+    mode = 'idle';
+    render(p);
+    if (tlW) moveStrip(stripXForPos(pos));
+    updateBubble();
+  }
+
+  function setPlaying(p) {
+    playing = p;
+    $('ico-pause').style.display = p ? '' : 'none';
+    $('ico-play').style.display = p ? 'none' : '';
+    if (p) {
+      if (pos < loopStart() || pos >= loopEnd()) render(loopStart());
+      mode = 'play';
+      anim = { last: performance.now(), hold: pos === loopStart() ? cfg.holdNowMs : 0, wrap: false };
+      kick();
+    } else if (mode === 'play') {
+      mode = 'idle';
+    }
   }
 
   function showControls() {
@@ -409,28 +454,29 @@
     $('zoom').classList.remove('hidden');
     clearTimeout(hideTimer);
     hideTimer = setTimeout(hideControls, cfg.controlsHideS * 1000);
-    if (cur >= 0 && !dragging && !anim) { measure(); placeStrip(ms(frames[cur].t)); }
+    if (mode === 'idle' || mode === 'play') { measure(); moveStrip(stripXForPos(pos)); }
   }
   function hideControls() {
-    if (dragging || anim) { hideTimer = setTimeout(hideControls, 1000); return; }
+    if (mode === 'drag' || mode === 'fling' || mode === 'tween') { hideTimer = setTimeout(hideControls, 1000); return; }
     $('bar').classList.add('hidden');
     $('zoom').classList.add('hidden');
     userActive = false;
-    if (!playing) show(loopStart());     // kiosk: back to "Aktuell"
+    if (!playing) jump(loopStart());       // kiosk: back to "Aktuell"
   }
 
   function initBar() {
     $('play').addEventListener('click', function (e) { e.stopPropagation(); setPlaying(!playing); showControls(); });
     $('bubble').addEventListener('click', function (e) {
-      e.stopPropagation(); setPlaying(false); show(loopStart()); showControls();
+      e.stopPropagation(); setPlaying(false); glideTo(loopStart(), 450); showControls();
     });
-    var tl = $('tl'), drag = null;
+    var tl = $('tl');
     tl.addEventListener('pointerdown', function (ev) {
       if (ev.target.closest && ev.target.closest('#bubble')) return;
-      anim = null; dragging = true;
+      setPlaying(false);
+      mode = 'drag';
       drag = { x0: ev.clientX, s0: stripX, moved: false, hist: [[performance.now(), ev.clientX]] };
       tl.setPointerCapture(ev.pointerId);
-      setPlaying(false); showControls();
+      showControls();
       kick();
     });
     tl.addEventListener('pointermove', function (ev) {
@@ -438,7 +484,7 @@
       var dx = ev.clientX - drag.x0;
       if (Math.abs(dx) > 4) drag.moved = true;
       var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD, x = drag.s0 + dx;
-      if (x > hi) x = hi + (x - hi) * 0.3;           // soft edges
+      if (x > hi) x = hi + (x - hi) * 0.3;
       if (x < lo) x = lo + (x - lo) * 0.3;
       moveStrip(x);
       var now = performance.now();
@@ -448,19 +494,17 @@
     });
     var end = function (ev) {
       if (!drag) return;
-      dragging = false;
       clearTimeout(hideTimer);
       hideTimer = setTimeout(hideControls, cfg.controlsHideS * 1000);
-      if (!drag.moved) {                       // tap on the strip: glide to that time
+      if (!drag.moved) {
         var r = tl.getBoundingClientRect();
-        var i = nearestFrame(tOf(ev.clientX - r.left - stripX));
-        animateTo(tlW / 2 - xOf(ms(frames[i].t)), 260, function () { show(i, true); updateBubble(ms(frames[i].t)); });
+        glideTo(nearestFrame(tOf(ev.clientX - r.left - stripX)), 300);
       } else {
         var h = drag.hist, a = h[0], b = h[h.length - 1];
-        var v = (b[0] - a[0]) > 0 ? (b[1] - a[1]) / (b[0] - a[0]) : 0;   // px per ms
+        var v = (b[0] - a[0]) > 0 ? (b[1] - a[1]) / (b[0] - a[0]) : 0;
         var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD;
         if (stripX > hi || stripX < lo || Math.abs(v) < 0.15) snap();
-        else { anim = { type: 'fling', v: Math.max(-4, Math.min(4, v)), last: performance.now() }; kick(); }
+        else { mode = 'fling'; anim = { v: Math.max(-4, Math.min(4, v)), last: performance.now() }; kick(); }
       }
       drag = null;
     };
@@ -468,17 +512,27 @@
     tl.addEventListener('pointercancel', end);
     $('bar').addEventListener('click', function (e) { e.stopPropagation(); showControls(); });
     $('zoom').addEventListener('click', function (e) { e.stopPropagation(); });
-    window.addEventListener('resize', function () { measure(); if (cur >= 0) placeStrip(ms(frames[cur].t)); });
+    window.addEventListener('resize', function () { measure(); moveStrip(stripXForPos(pos)); });
   }
+
+  function loopStart() { return nowIdx >= 0 ? nowIdx : 0; }
+  function loopEnd() { return fcEnd >= 0 ? fcEnd : loopStart(); }
 
   // -------------------------------------------------------------- manifest
   function applyManifest(m) {
     manifest = m;
-    var old = frames[cur] || null;
-    var wasAtNow = cur < 0 || cur === nowIdx;
-    all = m.frames || [];
+    var oldT = frames.length ? timeOfPos(pos) : null;
+    var wasAtNow = !frames.length || Math.abs(pos - nowIdx) < 0.01;
     var limit = Date.now() + cfg.forecastDays * 86400000;
-    frames = all.filter(function (f) { return f.k !== 'm' || (cfg.forecastDays > 0 && ms(f.t) <= limit); });
+    frames = (m.frames || []).filter(function (f) {
+      return f.k !== 'm' || (cfg.forecastDays > 0 && ms(f.t) <= limit);
+    });
+    times = frames.map(function (f) { return ms(f.t); });
+    // every frame gets a cloud image: own one, else the nearest frame's (no blank background)
+    var lastC = null;
+    frames.forEach(function (f) { f.cc = f.c || lastC; if (f.c) lastC = f.c; });
+    lastC = null;
+    for (var r = frames.length - 1; r >= 0; r--) { if (frames[r].c) lastC = frames[r].c; if (!frames[r].cc) frames[r].cc = lastC; }
     nowIdx = -1; fcEnd = -1;
     for (var i = 0; i < frames.length; i++) {
       if (frames[i].k === 'o' && frames[i].t === m.now) nowIdx = i;
@@ -486,18 +540,13 @@
     }
     if (nowIdx < 0) for (var j = frames.length - 1; j >= 0; j--) if (frames[j].k === 'o') { nowIdx = j; break; }
     if (fcEnd < 0) fcEnd = nowIdx;
-    preload = [];
-    frames.forEach(function (f) {
-      if (f.k === 'm') return;
-      var im = new Image(); im.src = f.u; preload.push(im);
-      if (f.c) { var ic = new Image(); ic.src = f.c; preload.push(ic); }
-    });
+    preload = []; warmed = {};
+    frames.forEach(function (f) { if (f.k !== 'm') warm(f); });
     buildStrip();
+    cur = -1;
     if (playing) return;
-    if (wasAtNow || !userActive || !old) { show(loopStart()); return; }
-    var idx = -1;
-    for (var k = 0; k < frames.length; k++) if (frames[k].t === old.t && frames[k].k === old.k) idx = k;
-    show(idx >= 0 ? idx : loopStart());
+    if (wasAtNow || !userActive || oldT === null) jump(loopStart());
+    else jump(posOfTime(oldT));
   }
 
   function poll() {
@@ -511,9 +560,7 @@
     });
   }
 
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && playing) { clearTimeout(timer); timer = setTimeout(tick, 300); }
-  });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && mode !== 'idle') kick(); });
 
   getJSON('config.json').then(function (c) {
     cfg = c;
