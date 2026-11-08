@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.3
+- Fix: Vorhersage >2 h verschwand – Modellfelder wurden gelöscht, wenn in einem Durchlauf kein neuer Lauf gefunden wurde. Jetzt bleibt der bisherige Lauf aktiv, gelöscht werden nur abgelaufene Felder
+- Nach Neustart steht die Modell-Zeitleiste sofort aus den vorhandenen Bildern zur Verfügung
+
 ## 0.7.2
 - Vollbild-Button oben rechts (über +/−): öffnet das Radar als browser_mod-Popup im Vollbild; im Popup schließt er es wieder. Fallback: Fullscreen-API bzw. neuer Tab
 

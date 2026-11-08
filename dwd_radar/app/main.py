@@ -96,6 +96,7 @@ class Radar:
         self.model_dir = WWW / "frames" / "model"
         self.cloud_dir = WWW / "frames" / "clouds"
         self.lut = build_lut(opt["radar_opacity"])
+        self.model_frames = self.model_frames_from_disk()
         self.obs_dir = WWW / "frames" / "obs"
         self.fc_dir = WWW / "frames" / "fc"
         self.state_file = DATA / "state.json"
@@ -202,6 +203,47 @@ class Radar:
         buf = io.BytesIO()
         Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
         return buf.getvalue()
+
+    def model_frames_from_disk(self) -> list[dict]:
+        """Model frames already rendered (used right after a restart until the first model cycle is done)."""
+        now = datetime.now(timezone.utc)
+        best: dict[datetime, dict] = {}
+        order = {"d2": 0, "eu": 1, "gl": 2}
+        if not self.model_dir.exists():
+            return []
+        for d in self.model_dir.iterdir():
+            try:
+                src, run_s = d.name.split("_")
+                run = datetime.strptime(run_s, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            for p in d.glob("p_*.png"):
+                t = datetime.strptime(p.stem[2:], "%Y%m%d%H").replace(tzinfo=timezone.utc)
+                if t <= now:
+                    continue
+                cand = {"t": iso(t), "k": "m", "u": f"frames/model/{d.name}/{p.name}", "s": src, "_r": run}
+                c = d / f"c_{p.stem[2:]}.png"
+                if c.exists():
+                    cand["c"] = f"frames/model/{d.name}/{c.name}"
+                old = best.get(t)
+                # prefer the finer source, then the newer run
+                if old is None or (order.get(src, 9), -run.timestamp()) < (order.get(old["s"], 9), -old["_r"].timestamp()):
+                    best[t] = cand
+        frames = [best[t] for t in sorted(best)]
+        ts = [datetime.strptime(f["t"], "%Y-%m-%dT%H:%M:%SZ") for f in frames]
+        for i, f in enumerate(frames):
+            # step length = distance to a neighbour of the same source (1 h or 3 h)
+            dt = 1
+            for j in (i - 1, i + 1):
+                if 0 <= j < len(frames) and frames[j]["s"] == f["s"]:
+                    dt = int(round(abs((ts[i] - ts[j]).total_seconds()) / 3600)) or 1
+                    break
+            f["d"] = dt
+        for f in frames:
+            f.pop("_r", None)
+        if frames:
+            log.info("Modell-Zeitleiste aus vorhandenen Bildern: %d Bilder bis %s", len(frames), frames[-1]["t"])
+        return frames
 
     def model_cycle(self) -> None:
         """Runs in its own thread: refresh ICON sources and render model frames."""

@@ -333,6 +333,7 @@ class ModelStore:
     def update(self, past_start: datetime, nowcast_end: datetime, horizon_h: int = 168) -> list[dict]:
         """Refresh all sources; return the model frame plan [{t, src, step, dt}]."""
         now = datetime.now(timezone.utc)
+        self.error = None
         end = now + timedelta(hours=horizon_h)
         first = (nowcast_end + timedelta(minutes=59)).replace(minute=0, second=0, microsecond=0)
         if first <= nowcast_end:
@@ -367,8 +368,11 @@ class ModelStore:
             try:
                 rd = self._choose_run(src, need)
                 if rd is None:
-                    log.warning("%s: kein passender Lauf verfügbar", src.label)
-                    continue
+                    # no complete newer run listed: keep using the current one while it still covers
+                    rd = self.runs.get(src.key)
+                    if rd is None or need(rd.run) is None:
+                        log.warning("%s: kein passender Lauf verfügbar", src.label)
+                        continue
                 steps = need(rd.run) or []
                 self._ensure_steps(src, rd, steps)
             except Exception as e:
@@ -402,17 +406,13 @@ class ModelStore:
                     log.info("%s-Lauf %s aktiv (%d Felder)", next(s.label for s in SOURCES if s.key == k),
                              rd.run.strftime("%d.%m. %H UTC"), len(rd.fields))
                 self.runs[k] = rd
-            # drop fields that are no longer used (keep memory small)
+            # drop only expired fields (time well in the past); never prune a source that failed this cycle
+            cut = now - timedelta(hours=4)
             for k, rd in list(self.runs.items()):
                 if k in ("d2", "d2prev"):
                     continue
-                used = {("prec", p["step"]) for p in plan if p["src"] == k} | \
-                       {("prec", p["prev"]) for p in plan if p["src"] == k} | \
-                       {("cloud", p["step"]) for p in plan if p["src"] == k}
-                if k in ("d2", "d2prev"):
-                    continue          # d2 clouds are also used for radar frames
                 for key in list(rd.fields):
-                    if key not in used:
+                    if rd.run + timedelta(hours=key[1]) < cut:
                         del rd.fields[key]
         try:
             self._save()
