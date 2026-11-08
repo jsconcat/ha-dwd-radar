@@ -49,10 +49,12 @@ def gy(lat: float, z: int) -> float:
 
 
 class MapOverlay:
-    def __init__(self, out_dir: Path, cache_dir: Path, box: tuple[float, float, float, float]):
+    def __init__(self, out_dir: Path, cache_dir: Path, box: tuple[float, float, float, float],
+                 pins: list[dict] | None = None):
         self.out = out_dir
         self.cache = cache_dir
         self.box = box            # lat_min, lat_max, lon_min, lon_max (widest area)
+        self.pins = pins or []    # screen area of pins is kept free of labels
         b = json.loads((DATA / "borders.json").read_text())
         self.country = b["country"]
         self.state = b["state"]
@@ -122,27 +124,50 @@ class MapOverlay:
         placed: list[tuple] = []
         grid: dict[tuple[int, int], list] = {}
         cell = 256
-        pad = 6 * S
+        pad = 3 * S
+        sw = round(2 * S)
+
+        def keys(bb):
+            return [(i, j) for i in range(int(bb[0] // cell), int(bb[2] // cell) + 1)
+                    for j in range(int(bb[1] // cell), int(bb[3] // cell) + 1)]
+
+        def free(bb):
+            for k in keys(bb):
+                for o in grid.get(k, ()):
+                    if bb[0] < o[2] and bb[2] > o[0] and bb[1] < o[3] and bb[3] > o[1]:
+                        return False
+            return True
+
+        def occupy(bb):
+            for k in keys(bb):
+                grid.setdefault(k, []).append(bb)
+
+        for p in self.pins:          # pin icons (anchored at their tip)
+            x, y = gx(p["lon"], z), gy(p["lat"], z)
+            w, h = (12, 33) if p.get("home") else (9, 25)
+            occupy((x - w * S, y - h * S, x + w * S, y + 3 * S))
+
+        dot = 2.6 * S
+        gap = 4 * S
         for name, lat, lon, pop in cand:
             f = self.font(pop)
             x, y = gx(lon, z), gy(lat, z)
-            l, t, r, b = f.getbbox(name, anchor="mm", stroke_width=round(2 * S))
-            bb = (x + l - pad, y + t - pad, x + r + pad, y + b + pad)
-            keys = [(i, j) for i in range(int(bb[0] // cell), int(bb[2] // cell) + 1)
-                    for j in range(int(bb[1] // cell), int(bb[3] // cell) + 1)]
-            hit = False
-            for k in keys:
-                for o in grid.get(k, ()):
-                    if bb[0] < o[2] and bb[2] > o[0] and bb[1] < o[3] and bb[3] > o[1]:
-                        hit = True
-                        break
-                if hit:
-                    break
-            if hit:
+            dbb = (x - dot - 1, y - dot - 1, x + dot + 1, y + dot + 1)
+            if not free(dbb):
                 continue
-            for k in keys:
-                grid.setdefault(k, []).append(bb)
-            placed.append((x, y, name, f, bb))
+            l, t, r, b = f.getbbox(name, anchor="lm", stroke_width=sw)
+            w, hgt = r - l, b - t
+            # right, left, above, below of the dot
+            options = [((x + dot + gap, y), "lm"), ((x - dot - gap, y), "rm"),
+                       ((x, y - dot - gap), "mb"), ((x, y + dot + gap), "mt")]
+            for (tx, ty), anchor in options:
+                l, t, r, b = f.getbbox(name, anchor=anchor, stroke_width=sw)
+                bb = (tx + l - pad, ty + t - pad, tx + r + pad, ty + b + pad)
+                if free(bb):
+                    occupy(bb); occupy(dbb)
+                    full = (min(bb[0], dbb[0]), min(bb[1], dbb[1]), max(bb[2], dbb[2]), max(bb[3], dbb[3]))
+                    placed.append((tx, ty, name, f, full, anchor, x, y))
+                    break
         return placed
 
     # ------------------------------------------------------------- tiles
@@ -164,24 +189,27 @@ class MapOverlay:
                 if x1 < ox - m or x0 > ox + T + m or y1 < oy - m or y0 > oy + T + m:
                     continue
                 d.line([(px - ox, py - oy) for px, py in pts], joint="curve", **style)
-        for lx, ly, text, f, bb in labels:
+        r = 2.6 * S
+        for lx, ly, text, f, bb, anchor, px, py in labels:
             if bb[2] < ox or bb[0] > ox + T or bb[3] < oy or bb[1] > oy + T:
                 continue
-            d.text((lx - ox, ly - oy), text, font=f, anchor="mm", fill=TEXT,
+            cx, cy = px - ox, py - oy
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(70, 80, 90, 255), outline=HALO, width=round(1 * S))
+            d.text((lx - ox, ly - oy), text, font=f, anchor=anchor, fill=TEXT,
                    stroke_width=round(2 * S), stroke_fill=HALO)
         return img
 
     def ensure(self, jobs: list[tuple[tuple[float, float, float, float], int, int]]) -> None:
         src = hashlib.sha1((DATA / "borders.json").read_bytes()).hexdigest()[:8]
         geon = (self.cache / "cities1000.zip").exists()
-        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, COUNTRY, STATE, 3]).encode()).hexdigest()[:12]
+        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, COUNTRY, STATE, self.pins, 4]).encode()).hexdigest()[:12]
         marker = self.out / f".done_{sig}"
         if marker.exists():
             log.info("Karten-Overlay vorhanden (%s)", sig)
             return
         places = self.places()
         geon = (self.cache / "cities1000.zip").exists()
-        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, COUNTRY, STATE, 3]).encode()).hexdigest()[:12]
+        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, COUNTRY, STATE, self.pins, 4]).encode()).hexdigest()[:12]
         marker = self.out / f".done_{sig}"
         self.out.mkdir(parents=True, exist_ok=True)
         zs = sorted({z for _, z0, z1 in jobs for z in range(z0, z1 + 1)})

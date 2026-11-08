@@ -19,7 +19,7 @@
   // ---------------------------------------------------------------- map
   function pinIcon(p) {
     var home = p.home;
-    var w = home ? 30 : 20, h = home ? 40 : 27;
+    var w = home ? 24 : 18, h = home ? 32 : 24;
     var fill = home ? '#173478' : '#4a5a66';
     var svg = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 40">' +
       '<path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 39 15 39s14-13.7 14-24.1C29 7.2 22.7 1 15 1z" fill="' + fill +

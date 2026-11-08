@@ -258,6 +258,17 @@ def basemap_cfg(opt: dict) -> dict:
     return b
 
 
+def pins_of(opt: dict) -> list[dict]:
+    pins = [{"name": opt["home_name"], "lat": opt["home_lat"], "lon": opt["home_lon"], "home": True}]
+    for p in opt.get("pins") or []:
+        try:
+            pins.append({"name": str(p.get("name", "")), "lat": float(p["lat"]), "lon": float(p["lon"]),
+                         "home": bool(p.get("home", False))})
+        except (KeyError, TypeError, ValueError):
+            log.warning("Ungültiger Pin ignoriert: %r", p)
+    return pins
+
+
 def install_web(opt: dict, bounds) -> None:
     """Copy the static page and write config.json (read by the page)."""
     WWW.mkdir(parents=True, exist_ok=True)
@@ -269,13 +280,7 @@ def install_web(opt: dict, bounds) -> None:
                 dst.write_text(src.read_text().replace("__V__", VERSION))
             else:
                 shutil.copy2(src, dst)
-    pins = [{"name": opt["home_name"], "lat": opt["home_lat"], "lon": opt["home_lon"], "home": True}]
-    for p in opt.get("pins") or []:
-        try:
-            pins.append({"name": str(p.get("name", "")), "lat": float(p["lat"]), "lon": float(p["lon"]),
-                         "home": bool(p.get("home", False))})
-        except (KeyError, TypeError, ValueError):
-            log.warning("Ungültiger Pin ignoriert: %r", p)
+    pins = pins_of(opt)
     cfg = {
         "version": VERSION,
         "center": [opt["home_lat"], opt["home_lon"]],
@@ -309,7 +314,7 @@ def start_background(opt: dict) -> None:
         if opt.get("basemap", "own") == "own":
             try:
                 wide = jobs[0][0]
-                MapOverlay(WWW / "overlay", DATA / "geo_cache", wide).ensure(jobs)
+                MapOverlay(WWW / "overlay", DATA / "geo_cache", wide, pins_of(opt)).ensure(jobs)
             except Exception as e:
                 log.error("Karten-Overlay fehlgeschlagen: %s", e)
         if opt["hillshade"]:

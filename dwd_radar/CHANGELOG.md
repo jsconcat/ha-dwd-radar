@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.1
+- Ortspunkte mit seitlicher Beschriftung, Ausweichpositionen, Pin-Bereich bleibt frei; Pins etwas kleiner
+
 ## 0.2.0
 - Eigene Grundkarte (Standard): nur Staats-/Landesgrenzen und Ortsnamen über dem Regen, keine Straßen
   (Natural Earth, GeoNames). basemap.de/CARTO/OSM weiterhin wählbar
