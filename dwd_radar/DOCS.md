@@ -23,7 +23,8 @@ sie als Leaflet-Seite bereit: `/local/dwd-radar/index.html` (iframe-Karte im Das
 | `controls_hide_s` | Zeitleiste blendet sich nach x s aus |
 | `reset_view_s` | nach x s ohne Bedienung zurück zur Startansicht (0 = aus) |
 | `stale_minutes` | ab diesem Datenalter Hinweis „Stand …“ |
-| `show_clouds` / `cloud_opacity` | Wolken aus ICON-D2 (Modell, kein Satellit) |
+| `show_clouds` / `cloud_opacity` | Wolken aus ICON-D2/EU/ICON (Modell, kein Satellit) |
+| `forecast_days` | Vorhersagehorizont 1–7 Tage (Modelle nach den 2 h Radar-Nowcast) |
 | `basemap` | `own` (Grenzen/Orte/Gewässer/Autobahnen selbst erzeugt), `basemapde`, `carto` (Key), `osm` |
 | `hillshade*` | Relief aus offenen Höhendaten (einmalig erzeugt) |
 

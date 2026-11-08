@@ -6,6 +6,7 @@ manifest.json for the web page and report status to Home Assistant.
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -17,15 +18,17 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import requests
+from PIL import Image
 
 import dwd
 from ha import HA
 from hillshade import Hillshade
 from mapoverlay import MapOverlay
 from landmarks import Landmarks
-from clouds import Clouds
-from render import Extent, Renderer
+from models import ModelStore, TargetGrid, SOURCES
+from render import Extent, Renderer, build_lut, LUT_MIN, LUT_MAX, LUT_N, STOPS
 
 OPTIONS = Path(os.environ.get("OPTIONS_FILE", "/data/options.json"))
 WWW = Path(os.environ.get("WWW_DIR", "/homeassistant/www/dwd-radar"))
@@ -63,7 +66,7 @@ def load_options() -> dict:
         "controls_hide_s": 6, "reset_view_s": 90, "stale_minutes": 20,
         "hillshade": True, "hillshade_strength": 1.0,
         "basemap": "own", "carto_key": "", "basemap_filter": "",
-        "show_clouds": True, "cloud_opacity": 1.0,
+        "show_clouds": True, "cloud_opacity": 1.0, "forecast_days": 7,
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -78,11 +81,13 @@ class Radar:
         self.renderer = Renderer(
             Extent(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"]),
             opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"])
-        self.clouds = None
-        if opt.get("show_clouds"):
-            self.clouds = Clouds(Extent(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"],
-                                        opt["extent_lon_max"]), WWW / "frames" / "clouds", 1000.0,
-                                 float(opt.get("cloud_opacity", 1.0)))
+        self.tg = TargetGrid(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"],
+                             opt["extent_lon_max"], 1000.0)
+        self.models = ModelStore(self.tg, DATA / "model_cache")
+        self.model_frames: list[dict] = []
+        self.model_dir = WWW / "frames" / "model"
+        self.cloud_dir = WWW / "frames" / "clouds"
+        self.lut = build_lut(opt["radar_opacity"])
         self.obs_dir = WWW / "frames" / "obs"
         self.fc_dir = WWW / "frames" / "fc"
         self.state_file = DATA / "state.json"
@@ -171,37 +176,81 @@ class Radar:
         self.last_error = None
         self.ha.clear_error()
 
-    # ----------------------------------------------------------------- clouds
+    # ----------------------------------------------------------------- model layer
+    def cloud_png(self, cc: np.ndarray) -> bytes:
+        c = np.clip(cc, 0, 100) / 100.0
+        alpha = np.clip((c - 0.10) / 0.90, 0, 1) ** 1.05 * 0.80 * float(self.o.get("cloud_opacity", 1.0))
+        col = np.stack([252 - 50 * c, 252 - 46 * c, 253 - 40 * c], axis=-1)
+        rgba = np.dstack([col, alpha * 255]).round().astype(np.uint8)
+        buf = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
+        return buf.getvalue()
+
+    def precip_png(self, rate: np.ndarray) -> bytes:
+        rr = np.nan_to_num(rate, nan=0.0)
+        idx = (np.log10(np.maximum(rr, 1e-6)) - LUT_MIN) / (LUT_MAX - LUT_MIN) * (LUT_N - 1)
+        rgba = self.lut[np.clip(idx, 0, LUT_N - 1).astype(np.int32)]
+        rgba[rr < STOPS[0][0]] = 0
+        buf = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
+        return buf.getvalue()
+
+    def model_cycle(self) -> None:
+        """Runs in its own thread: refresh ICON sources and render model frames."""
+        now = datetime.now(timezone.utc)
+        past_start = now - timedelta(minutes=self.o["past_minutes"] + 5)
+        nowcast_end = (self.last_run or dwd.floor5(now)) + timedelta(minutes=120)
+        plan = self.models.update(past_start, nowcast_end, int(self.o["forecast_days"]) * 24)
+        frames, keep = [], set()
+        n_new = 0
+        for p in plan:
+            d = self.model_dir / f"{p['src']}_{p['run']:%Y%m%d%H}"
+            pp, pc = d / f"p_{p['t']:%Y%m%d%H}.png", d / f"c_{p['t']:%Y%m%d%H}.png"
+            if not pp.exists():
+                atomic_write(pp, self.precip_png(self.models.rate(p)))
+                n_new += 1
+            f = {"t": iso(p["t"]), "k": "m", "u": f"frames/model/{d.name}/{pp.name}", "s": p["src"]}
+            if self.o.get("show_clouds"):
+                cc = self.models.cloud(p)
+                if cc is not None:
+                    if not pc.exists():
+                        atomic_write(pc, self.cloud_png(cc))
+                    f["c"] = f"frames/model/{d.name}/{pc.name}"
+            frames.append(f)
+            keep.add(d.name)
+        self.model_frames = frames
+        if n_new:
+            log.info("Modellbilder: %d neu, %d gesamt bis %s (Download 24 h: %.0f MB)", n_new, len(frames),
+                     frames[-1]["t"] if frames else "-", self.models.download_mb_24h())
+        cutoff = time.time() - 900
+        if self.model_dir.exists():
+            for d in self.model_dir.iterdir():
+                if d.is_dir() and d.name not in keep and d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+
     def attach_clouds(self, frames: list[dict]):
-        if not self.clouds or not frames:
-            return None
-        c = self.clouds
-        try:
-            t0 = datetime.strptime(frames[0]["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-            t1 = datetime.strptime(frames[-1]["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-            c.refresh(t0, t1)
-        except Exception as e:
-            c.error = f"{type(e).__name__}: {e}"
-            log.warning("Wolken nicht aktualisiert: %s", c.error)
-            self.ha.log("warning", f"Wolken (ICON-D2) nicht aktualisiert: {c.error}")
-        if not c.run:
-            return None
+        if not self.o.get("show_clouds") or not frames:
+            return
+        rd = self.models.runs.get("d2")
+        tag = rd.run.strftime("%Y%m%d%H") if rd else "x"
         keep = set()
         for f in frames:
+            if f["k"] == "m":
+                continue
             t = datetime.strptime(f["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-            p = c.path_for(t)
+            p = self.cloud_dir / f"c_{t:%Y%m%d%H%M}_{tag}.png"
             if not p.exists():
-                cc = c.cover_at(t)
+                cc = self.models.cloud_at(t)
                 if cc is None:
                     continue
-                atomic_write(p, c.png(cc))
+                atomic_write(p, self.cloud_png(cc))
             keep.add(p.name)
             f["c"] = f"frames/clouds/{p.name}"
         cutoff = time.time() - 900
-        for p in c.out.glob("c_*.png"):
-            if p.name not in keep and p.stat().st_mtime < cutoff:
-                p.unlink(missing_ok=True)
-        return c.bounds
+        if self.cloud_dir.exists():
+            for p in self.cloud_dir.glob("c_*.png"):
+                if p.name not in keep and p.stat().st_mtime < cutoff:
+                    p.unlink(missing_ok=True)
 
     # --------------------------------------------------------------- manifest
     def cleanup_and_manifest(self) -> None:
@@ -230,13 +279,17 @@ class Radar:
                     lead = int(p.stem[2:])
                     t = self.last_run + timedelta(minutes=lead)
                     frames.append({"t": iso(t), "k": "f", "u": f"frames/fc/{d.name}/{p.name}"})
-        cbounds = self.attach_clouds(frames)
+        last_t = frames[-1]["t"] if frames else ""
+        frames += [f for f in self.model_frames if f["t"] > last_t]
+        self.attach_clouds(frames)
         age_min = (now - newest_obs).total_seconds() / 60 if newest_obs else None
         stale = age_min is None or age_min > self.o["stale_minutes"]
         manifest = {
             "generated": iso(now),
             "bounds": self.renderer.bounds,
-            "cbounds": cbounds,
+            "mbounds": self.tg.bounds,
+            "sources": {s.key: s.label for s in SOURCES},
+            "model_error": self.models.error,
             "now": iso(newest_obs) if newest_obs else None,
             "run": iso(fc_run) if fc_run else None,
             "stale": stale,
@@ -253,6 +306,10 @@ class Radar:
                        forecast_run=iso(fc_run) if fc_run else None,
                        frames=len(frames),
                        dwd_latency_s=self.latency_s,
+                       model_runs={k: iso(v.run) for k, v in self.models.runs.items() if k != "d2prev"},
+                       model_frames=len(self.model_frames),
+                       model_download_mb_24h=self.models.download_mb_24h(),
+                       model_error=self.models.error,
                        last_success=iso(self.last_success) if self.last_success else None,
                        last_error=self.last_error)
 
@@ -381,6 +438,19 @@ def main() -> None:
     install_web(opt, radar.renderer.bounds)
     log.info("Overlay %dx%d px, Bounds %s", radar.renderer.nx, radar.renderer.ny, radar.renderer.bounds)
     start_background(opt)
+
+    def model_loop():
+        time.sleep(5)
+        while True:
+            try:
+                radar.model_cycle()
+            except Exception as e:
+                radar.models.error = f"{type(e).__name__}: {e}"
+                log.error("Modelldaten fehlgeschlagen: %s", radar.models.error)
+                log.debug(traceback.format_exc())
+                radar.ha.log("warning", f"Modelldaten (ICON) fehlgeschlagen: {radar.models.error}")
+            time.sleep(300)
+    threading.Thread(target=model_loop, daemon=True, name="models").start()
     while True:
         t0 = time.time()
         try:

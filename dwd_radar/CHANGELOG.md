@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+- Vorhersage bis 7 Tage: Radar-Nowcast bis +2 h, danach ICON-D2, ICON-EU, ICON (global) – jeweils beste verfügbare Quelle
+- Wolken über den gesamten Zeitraum aus denselben Modellen
+- Standard pausiert auf „Aktuell“; Play spielt nur Aktuell bis +2 h
+- Zeitleiste: Modellbereich gestaucht mit Tagesmarken; Modellbilder werden erst beim Scrubben geladen
+
 ## 0.4.1
 - Wolken: Modelllauf wählen, der auch die letzten 2 h abdeckt
 

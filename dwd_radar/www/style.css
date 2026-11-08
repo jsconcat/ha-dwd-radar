@@ -38,7 +38,11 @@ html, body { margin: 0; height: 100%; background: #e3e8dc; overflow: hidden;
 .seg { position: absolute; top: 31px; height: 4px; border-radius: 2px; }
 .seg.past { background: #1d5f8a; }
 .seg.fc { background: repeating-linear-gradient(90deg, #1d5f8a 0 6px, transparent 6px 10px); opacity: .75; }
+.seg.model { background: repeating-linear-gradient(90deg, #8aa1b1 0 3px, transparent 3px 6px); opacity: .9; }
 .ticks { position: absolute; inset: 0; }
+.tick.minor { height: 3px; top: 38px; background: #b3c0c9; }
+.tick.day { background: #5a6b78; height: 7px; top: 37px; }
+.tick.day::after { font-weight: 600; }
 .tick { position: absolute; top: 38px; width: 1px; height: 5px; background: #8a9aa6; }
 .tick.lbl::after { content: attr(data-t); position: absolute; top: 4px; left: -16px; width: 32px;
   text-align: center; font-size: 10px; color: #5a6b78; font-variant-numeric: tabular-nums; }
