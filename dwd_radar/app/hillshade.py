@@ -98,11 +98,19 @@ class Hillshade:
             return
         self.out.mkdir(parents=True, exist_ok=True)
         self.cache.mkdir(parents=True, exist_ok=True)
+        partial = self.out / f".partial_{sig}"
+        resume = partial.exists()          # interrupted run with identical settings
+        for old in self.out.glob(".partial_*"):
+            if old != partial:
+                old.unlink()
+        partial.write_text("running")
         todo = [(z, x, y) for box, z0, z1 in jobs for z in range(z0, z1 + 1) for x, y in tiles_for(box, z)]
         log.info("Erzeuge %d Relief-Kacheln (einmalig) ...", len(todo))
         for i, (z, x, y) in enumerate(todo, 1):
             p = self.out / str(z) / str(x) / f"{y}.png"
             p.parent.mkdir(parents=True, exist_ok=True)
+            if resume and p.exists():
+                continue
             img = self._tile(z, x, y)
             tmp = p.with_suffix(".tmp")
             img.save(tmp, "PNG", optimize=True)
@@ -112,4 +120,5 @@ class Hillshade:
         for old in self.out.glob(".done_*"):
             old.unlink()
         marker.write_text("ok")
+        partial.unlink(missing_ok=True)
         log.info("Relief-Kacheln fertig")

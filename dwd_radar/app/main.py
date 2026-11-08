@@ -59,7 +59,7 @@ def load_options() -> dict:
         "frame_ms": 450, "hold_now_ms": 1500, "hold_end_ms": 2500,
         "controls_hide_s": 6, "reset_view_s": 90, "stale_minutes": 20,
         "hillshade": True, "hillshade_strength": 1.0,
-        "basemap": "basemapde", "carto_key": "",
+        "basemap": "basemapde", "carto_key": "", "basemap_filter": "",
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -218,7 +218,7 @@ BASEMAPS = {
     "basemapde": {
         "url": "https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
         "attribution": "© GeoBasis-DE / BKG (2026) CC BY 4.0",
-        "maxNativeZoom": 18, "labels": None, "filter": "",
+        "maxNativeZoom": 18, "labels": None, "filter": "contrast(0.55) brightness(1.12) saturate(0.6)",
     },
     "carto": {
         "url": "https://{s}.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}{r}.png?key={key}",
@@ -243,6 +243,8 @@ def basemap_cfg(opt: dict) -> dict:
     b["url"] = b["url"].replace("{key}", key)
     if b.get("labels"):
         b["labels"] = b["labels"].replace("{key}", key)
+    if opt.get("basemap_filter"):
+        b["filter"] = str(opt["basemap_filter"])
     b["name"] = name
     return b
 
