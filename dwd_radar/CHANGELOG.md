@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.2
+- Modellfelder werden in /data zwischengespeichert: Neustart/Update ohne erneuten Download
+
 ## 0.5.1
 - Robust gegen gecachte alte index.html (fehlende Elemente werden ergänzt)
 

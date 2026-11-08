@@ -200,6 +200,57 @@ class ModelStore:
         self.listings: dict[tuple, tuple[float, dict]] = {}
         self.bytes_log: list[tuple[float, int]] = []
         self.error: str | None = None
+        self._saved: dict[str, tuple] = {}
+        self._load()
+
+    # --------------------------------------------------------- persistence
+    def _load(self) -> None:
+        """Restore resampled fields after a restart (avoids re-downloading everything)."""
+        if not self.cache.exists():
+            return
+        cut = datetime.now(timezone.utc) - timedelta(days=2)
+        for f in self.cache.glob("fields_*.npz"):
+            try:
+                _, key, run_s = f.stem.split("_")
+                run = utc(run_s)
+                z = np.load(f)
+                if run < cut or z["shape"].tolist() != list(self.tg.LAT.shape):
+                    f.unlink(missing_ok=True)
+                    continue
+                fields = {}
+                for name in z.files:
+                    if name == "shape":
+                        continue
+                    var, step = name.split("-")
+                    fields[(var, int(step))] = z[name].astype(np.float32)
+                old = self.runs.get(key)
+                if not old or old.run < run:
+                    self.runs[key] = RunData(run, fields)
+                    self._saved[key] = (run, len(fields))
+            except Exception as e:
+                log.warning("Cache %s unlesbar (%s) – wird neu geladen", f.name, e)
+                f.unlink(missing_ok=True)
+        if self.runs:
+            log.info("Modell-Cache geladen: %s",
+                     ", ".join(f"{k} {v.run:%d.%m. %H} UTC ({len(v.fields)})" for k, v in self.runs.items()))
+
+    def _save(self) -> None:
+        self.cache.mkdir(parents=True, exist_ok=True)
+        keep = set()
+        for key, rd in list(self.runs.items()):
+            name = f"fields_{key}_{rd.run:%Y%m%d%H}.npz"
+            keep.add(name)
+            if self._saved.get(key) == (rd.run, len(rd.fields)):
+                continue
+            arrays = {f"{v}-{s}": a.astype(np.float16) for (v, s), a in rd.fields.items()}
+            tmp = self.cache / (name + ".tmp")
+            with open(tmp, "wb") as fh:
+                np.savez(fh, shape=np.array(self.tg.LAT.shape), **arrays)
+            tmp.replace(self.cache / name)
+            self._saved[key] = (rd.run, len(rd.fields))
+        for f in self.cache.glob("fields_*.npz"):
+            if f.name not in keep:
+                f.unlink(missing_ok=True)
 
     # ------------------------------------------------------------ helpers
     def _list(self, src: Source, hh: int, var: str) -> dict:
@@ -358,6 +409,10 @@ class ModelStore:
                 for key in list(rd.fields):
                     if key not in used:
                         del rd.fields[key]
+        try:
+            self._save()
+        except Exception as e:
+            log.warning("Modell-Cache nicht gespeichert: %s", e)
         return plan
 
     # -------------------------------------------------------------- access
