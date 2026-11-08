@@ -11,8 +11,6 @@
   var preload = [], radarSw = null, cloudSw = null, userActive = false;
   var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   var DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-  var K_RADAR = 2.0 / 60000;      // px per ms in radar range (2 px/min)
-  var K_MODEL = 0.5 / 60000;      // px per ms in model range (0.5 px/min, 1 day = 720 px)
 
   var $ = function (id) { return document.getElementById(id); };
   var ms = function (iso) { return new Date(iso).getTime(); };
@@ -221,21 +219,71 @@
   }
 
   // --------------------------------------------- timeline (fixed centre)
-  var tStart = 0, tSplit = 0, tEnd = 0, stripX = 0;
-  function xOf(t) {                       // strip pixel of a time
-    if (t <= tSplit) return (t - tStart) * K_RADAR;
-    return (tSplit - tStart) * K_RADAR + (t - tSplit) * K_MODEL;
+  // The strip is split into blocks per data source/resolution (like WarnWetter):
+  // each block has its own scale; the time between blocks is compressed into a gap.
+  var GAP = 14, PAD = 6;
+  var GROUPS = {
+    radar: { k: 2.0, label: 'Radar · 1 km · 5 min', cls: 'g-radar' },
+    'd2-1': { k: 0.6, label: 'ICON-D2 · 2 km · 1 h', cls: 'g-d2' },
+    'eu-1': { k: 0.45, label: 'ICON-EU · 7 km · 1 h', cls: 'g-eu' },
+    'eu-3': { k: 0.25, label: 'ICON-EU · 7 km · 3 h', cls: 'g-eu3' },
+    'gl-1': { k: 0.45, label: 'ICON · 13 km · 1 h', cls: 'g-gl' },
+    'gl-3': { k: 0.25, label: 'ICON · 13 km · 3 h', cls: 'g-gl3' }
+  };
+  var blocks = [], stripX = 0;
+  function groupKey(f) { return f.k === 'm' ? f.s + '-' + (f.d >= 3 ? 3 : 1) : 'radar'; }
+
+  function buildBlocks() {
+    blocks = [];
+    var x = PAD;
+    frames.forEach(function (f, i) {
+      var key = groupKey(f), t = ms(f.t), b = blocks[blocks.length - 1];
+      if (!b || b.key !== key) {
+        if (b) x = b.x0 + (b.t1 - b.t0) * b.k + PAD * 2 + GAP;
+        var g = GROUPS[key] || { k: 0.3, label: key, cls: '' };
+        b = { key: key, k: g.k / 60000, label: g.label, cls: g.cls, t0: t, t1: t, i0: i, i1: i, x0: x };
+        blocks.push(b);
+      }
+      b.t1 = t; b.i1 = i;
+    });
   }
-  function tOf(x) {                       // inverse
-    var xs = (tSplit - tStart) * K_RADAR;
-    if (x <= xs) return tStart + x / K_RADAR;
-    return tSplit + (x - xs) / K_MODEL;
+  function xOf(t) {
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (t <= b.t1 || i === blocks.length - 1) return b.x0 + (Math.max(t, b.t0) - b.t0) * b.k;
+      var nb = blocks[i + 1];
+      if (t < nb.t0) {                 // between blocks: inside the gap
+        var f = (t - b.t1) / (nb.t0 - b.t1);
+        var xe = b.x0 + (b.t1 - b.t0) * b.k;
+        return xe + f * (nb.x0 - xe);
+      }
+    }
+    return 0;
   }
+  function tOf(x) {
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i], xe = b.x0 + (b.t1 - b.t0) * b.k;
+      if (x <= xe || i === blocks.length - 1) return b.t0 + Math.max(0, x - b.x0) / b.k;
+      var nb = blocks[i + 1];
+      if (x < nb.x0) return (x - xe) < (nb.x0 - xe) / 2 ? b.t1 : nb.t0;
+    }
+    return 0;
+  }
+  function stripEnd() { var b = blocks[blocks.length - 1]; return b ? b.x0 + (b.t1 - b.t0) * b.k : 0; }
   function tlWidth() { return $('tl').clientWidth || 300; }
-  function placeStrip(t) {
-    stripX = tlWidth() / 2 - xOf(t);
+  function moveStrip(x) {
+    stripX = x;
     $('strip').style.transform = 'translate3d(' + stripX.toFixed(1) + 'px,0,0)';
+    // keep each block label visible while its block is on screen ("sticky")
+    var labels = $('strip').querySelectorAll('.blabel');
+    for (var i = 0; i < labels.length && i < blocks.length; i++) {
+      var b = blocks[i], bl = b.x0 - PAD, bw = (b.t1 - b.t0) * b.k + 2 * PAD;
+      var lw = labels[i].offsetWidth || 120;
+      var want = -stripX + 6 - bl;
+      labels[i].style.left = Math.max(6, Math.min(bw - lw - 6, want)).toFixed(1) + 'px';
+    }
   }
+  function placeStrip(t) { moveStrip(tlWidth() / 2 - xOf(t)); }
   function updateBubble(t) {
     $('bubble-t').textContent = (frames[cur] && (frames[cur].k === 'm' || !sameDay(t, Date.now()))) ? dayhm(t) : hm(t);
     var away = Math.abs(xOf(t) - xOf(ms(frames[loopStart()].t))) > 45;
@@ -246,38 +294,42 @@
   function buildStrip() {
     var strip = $('strip');
     if (!frames.length) { strip.innerHTML = ''; return; }
-    tStart = ms(frames[0].t);
-    tEnd = ms(frames[frames.length - 1].t);
-    tSplit = ms(frames[loopEnd()].t);
-    var tNow = ms(frames[loopStart()].t);
+    buildBlocks();
+    var tNow = ms(frames[loopStart()].t), tFc = ms(frames[loopEnd()].t);
     var html = [];
+    var px = function (v) { return v.toFixed(1) + 'px'; };
     var seg = function (a, b, cls) {
-      html.push('<div class="seg ' + cls + '" style="left:' + xOf(a).toFixed(1) + 'px;width:' +
-        Math.max(0, xOf(b) - xOf(a)).toFixed(1) + 'px"></div>');
+      html.push('<div class="seg ' + cls + '" style="left:' + px(xOf(a)) + ';width:' + px(Math.max(0, xOf(b) - xOf(a))) + '"></div>');
     };
-    seg(tStart, tNow, 'past'); seg(tNow, tSplit, 'fc'); if (tEnd > tSplit) seg(tSplit, tEnd, 'model');
     var tick = function (t, cls, label) {
-      html.push('<div class="tick ' + cls + '" style="left:' + xOf(t).toFixed(1) + 'px"' +
-        (label ? ' data-t="' + label + '"' : '') + '></div>');
+      html.push('<div class="tick ' + cls + '" style="left:' + px(xOf(t)) + '"' + (label ? ' data-t="' + label + '"' : '') + '></div>');
     };
-    // radar range: 15-min ticks, hour labels
-    var q = 15 * 60000, t;
-    for (t = Math.ceil(tStart / q) * q; t <= tSplit; t += q) {
-      var d = new Date(t);
-      if (d.getMinutes() === 0) tick(t, 'lbl', hm(t)); else tick(t, 'minor');
-    }
-    // model range: 3-hour ticks, labels at 06/12/18, day at midnight
-    var h3 = 3 * 3600000;
-    for (t = Math.ceil(tSplit / h3) * h3; t <= tEnd; t += 3600000) {
-      var dd = new Date(t), hh = dd.getHours();
-      if (t <= tSplit + 60000 || dd.getMinutes() !== 0) continue;
-      if (hh === 0) tick(t, 'lbl day', DAYS[dd.getDay()] + '. ' + dd.getDate() + '.');
-      else if (hh % 6 === 0) tick(t, 'lbl', hm(t));
-      else if (hh % 3 === 0) tick(t, 'minor');
-    }
-    html.push('<div class="nowmark" style="left:' + xOf(tNow).toFixed(1) + 'px"><span>Aktuell</span></div>');
+    blocks.forEach(function (b, bi) {
+      var xe = b.x0 + (b.t1 - b.t0) * b.k;
+      html.push('<div class="block ' + b.cls + '" style="left:' + px(b.x0 - PAD) + ';width:' + px(xe - b.x0 + 2 * PAD) +
+        '"><span class="blabel">' + b.label + '</span></div>');
+      if (b.key === 'radar') {
+        seg(b.t0, Math.min(tNow, b.t1), 'past');
+        if (tFc > tNow) seg(tNow, Math.min(tFc, b.t1), 'fc');
+      } else {
+        seg(b.t0, b.t1, 'model ' + b.cls);
+      }
+      // ticks: density depends on the block scale
+      var pxh = b.k * 3600000, minor, lab;
+      if (pxh >= 100) { minor = 15; lab = 60; } else if (pxh >= 30) { minor = 60; lab = 360; } else { minor = 180; lab = 720; }
+      // grid aligned to local clock time (local midnight + n * step)
+      var step = minor * 60000, mid = new Date(b.t0); mid.setHours(0, 0, 0, 0);
+      var t = mid.getTime() + Math.ceil((b.t0 - mid.getTime()) / step) * step;
+      for (; t <= b.t1; t += step) {
+        var d = new Date(t), mins = d.getHours() * 60 + d.getMinutes();
+        if (b.key !== 'radar' && mins === 0) tick(t, 'lbl day', DAYS[d.getDay()] + '. ' + d.getDate() + '.');
+        else if (mins % lab === 0) tick(t, 'lbl', hm(t));
+        else tick(t, 'minor');
+      }
+    });
+    html.push('<div class="nowmark" style="left:' + px(xOf(tNow)) + '"><span>Aktuell</span></div>');
     strip.innerHTML = html.join('');
-    strip.style.width = Math.ceil(xOf(tEnd) + 1) + 'px';
+    strip.style.width = Math.ceil(stripEnd() + PAD + 1) + 'px';
   }
 
   function nearestFrame(t) {
@@ -321,8 +373,7 @@
       var dx = ev.clientX - drag.x0;
       if (Math.abs(dx) > 3) drag.moved = true;
       var half = tlWidth() / 2;
-      stripX = Math.min(half, Math.max(half - xOf(tEnd), drag.s0 + dx));
-      $('strip').style.transform = 'translate3d(' + stripX.toFixed(1) + 'px,0,0)';
+      moveStrip(Math.min(half - PAD, Math.max(half - stripEnd(), drag.s0 + dx)));
       var t = tOf(half - stripX);
       var i = nearestFrame(t);
       if (i !== cur) show(i, true);

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.1
+- Zeitleiste in Blöcke je Quelle/Auflösung getrennt (Radar, ICON-D2, ICON-EU 1 h/3 h, ICON), eigener Maßstab je Block, Beschriftung bleibt sichtbar
+
 ## 0.6.0
 - Konfiguration mit deutschen Beschriftungen: Vorhersage 0–7 Tage, Standort (Kartenbereich automatisch per Radius), Rückkehr zur Startansicht 0–120 s
 - Pro Dashboard-Karte per URL überschreibbar: ?days=, ?return=, ?zoom=, ?lat=&lon=

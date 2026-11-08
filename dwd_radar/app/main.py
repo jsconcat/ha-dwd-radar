@@ -217,7 +217,7 @@ class Radar:
             if not pp.exists():
                 atomic_write(pp, self.precip_png(self.models.rate(p)))
                 n_new += 1
-            f = {"t": iso(p["t"]), "k": "m", "u": f"frames/model/{d.name}/{pp.name}", "s": p["src"]}
+            f = {"t": iso(p["t"]), "k": "m", "u": f"frames/model/{d.name}/{pp.name}", "s": p["src"], "d": p["dt"]}
             if self.o.get("show_clouds"):
                 cc = self.models.cloud(p)
                 if cc is not None:
