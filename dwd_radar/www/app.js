@@ -15,6 +15,7 @@
   var DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
   var $ = function (id) { return document.getElementById(id); };
+  var IN_POPUP = new URLSearchParams(location.search).get('popup') === '1';
   var ms = function (iso) { return new Date(iso).getTime(); };
   var hm = function (t) { return new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
   var dayhm = function (t) { return DAYS[new Date(t).getDay()] + ' ' + hm(t); };
@@ -52,7 +53,12 @@
     var z = document.createElement('div');
     z.id = 'zoom';
     z.className = 'zoombox hidden';
-    z.innerHTML = '<button id="zin" aria-label="Hineinzoomen">+</button><button id="zout" aria-label="Herauszoomen">&minus;</button>';
+    var fsIcon = IN_POPUP
+      ? '<svg viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+    z.innerHTML = '<button id="zfs" class="fs" aria-label="' + (IN_POPUP ? 'Vollbild schließen' : 'Vollbild') + '">' + fsIcon + '</button>' +
+      '<div class="zgroup"><button id="zin" aria-label="Hineinzoomen">+</button>' +
+      '<button id="zout" aria-label="Herauszoomen">&minus;</button></div>';
     document.body.appendChild(z);
   }
 
@@ -159,6 +165,7 @@
     map.on('movestart zoomstart moveend zoomend', function () { armReset(); });
     $('zin').addEventListener('click', function (e) { e.stopPropagation(); map.zoomIn(); showControls(); });
     $('zout').addEventListener('click', function (e) { e.stopPropagation(); map.zoomOut(); showControls(); });
+    $('zfs').addEventListener('click', function (e) { e.stopPropagation(); toggleFullscreen(); });
   }
 
   function atHome() {
@@ -171,6 +178,55 @@
     resetTimer = setTimeout(function () { map.setView(cfg.center, cfg.zoom, { animate: false }); },
       cfg.resetViewS * 1000);
   }
+
+  // ------------------------------------------------------------ fullscreen
+  // 1st choice: browser_mod popup (fullscreen) in the Home Assistant frontend (same origin as /local);
+  // 2nd: Fullscreen API (needs the iframe to allow it); 3rd: open in a new tab.
+  function haRoot() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.document) return window.parent;
+    } catch (e) { /* cross-origin */ }
+    return null;
+  }
+  function browserMod(service, data) {
+    var p = haRoot();
+    if (!p) return false;
+    var hasBM = false;
+    try { hasBM = !!(p.browser_mod || (p.customElements && p.customElements.get('browser-mod-popup'))); } catch (e) {}
+    if (!hasBM) return false;
+    var ev = new p.CustomEvent('ll-custom', { bubbles: true, composed: true,
+      detail: { action: 'fire-dom-event', browser_mod: { service: service, data: data || {} } } });
+    p.document.body.dispatchEvent(ev);
+    return true;
+  }
+  function popupUrl() {
+    var q = new URLSearchParams(location.search);
+    q.set('popup', '1');
+    return location.pathname + '?' + q.toString();
+  }
+  function toggleFullscreen() {
+    if (IN_POPUP) {
+      if (browserMod('browser_mod.close_popup')) return;
+      if (document.fullscreenElement) { document.exitFullscreen(); return; }
+      window.close();
+      return;
+    }
+    var p = haRoot();
+    var ratio = p ? Math.round((p.innerHeight - 64) / p.innerWidth * 1000) / 10 : 60;
+    var ok = browserMod('browser_mod.popup', {
+      title: 'Regenradar', size: 'fullscreen',
+      content: { type: 'iframe', url: popupUrl(), aspect_ratio: ratio + '%' }
+    });
+    if (ok) return;
+    var el = document.documentElement;
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(function () { window.open(popupUrl(), '_blank'); });
+    } else {
+      window.open(popupUrl(), '_blank');
+    }
+  }
+  document.addEventListener('fullscreenchange', function () { setTimeout(function () { if (map) map.invalidateSize({ pan: false }); }, 200); });
 
   // ------------------------------------------------- cross-fading image layer
   // A small pool of image overlays. An image becomes visible only once it is loaded AND decoded;

@@ -63,12 +63,17 @@ html, body { margin: 0; height: 100%; background: #e3e8dc; overflow: hidden;
 .bubble .bnow { display: none; margin-left: 6px; font-size: 13px; }
 .bubble.away .bnow { display: inline; }
 
-/* zoom buttons (top right, shown with the timeline) */
-.zoombox { position: absolute; right: 10px; top: 10px; z-index: 900; display: flex; flex-direction: column;
-  border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.25); transition: opacity .25s, transform .25s; }
+/* fullscreen + zoom buttons (top right, shown with the timeline) */
+.zoombox { position: absolute; right: 10px; top: 10px; z-index: 900; display: flex; flex-direction: column; gap: 8px;
+  transition: opacity .25s, transform .25s; }
+.zoombox .zgroup, .zoombox button.fs { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.zoombox .zgroup { display: flex; flex-direction: column; }
 .zoombox button { width: 42px; height: 42px; border: 0; background: rgba(255,255,255,.93); color: #1d5f8a;
   font-size: 24px; line-height: 42px; padding: 0; }
-.zoombox button + button { border-top: 1px solid #d5dde3; }
+.zoombox .zgroup button + button { border-top: 1px solid #d5dde3; }
+.zoombox button.fs { display: flex; align-items: center; justify-content: center; }
+.zoombox button.fs svg { width: 22px; height: 22px; fill: none; stroke: #1d5f8a; stroke-width: 2.2;
+  stroke-linecap: round; stroke-linejoin: round; }
 
 /* attribution: tiny */
 .leaflet-control-attribution { font-size: 9px !important; background: rgba(255,255,255,.55) !important;

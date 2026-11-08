@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.2
+- Vollbild-Button oben rechts (über +/−): öffnet das Radar als browser_mod-Popup im Vollbild; im Popup schließt er es wieder. Fallback: Fullscreen-API bzw. neuer Tab
+
 ## 0.7.1
 - Fehlende Kachelstreifen behoben: Kartengröße wird bei jeder Größenänderung des iframes neu erfasst (ResizeObserver + Kontrolle alle 15 s), fehlende Kacheln werden nachgeladen
 - Fehlgeschlagene Kacheln werden bis zu zweimal erneut geladen
