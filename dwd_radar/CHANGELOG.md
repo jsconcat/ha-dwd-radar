@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.1
+- Wolken: Modelllauf wählen, der auch die letzten 2 h abdeckt
+
 ## 0.4.0
 - Wolken (Gesamtbedeckung ICON-D2, Modell) unter dem Regen, stündlich, auf 5-min-Bilder überblendet
 - Weniger Details bei kleinen Zoomstufen: Orte, Flüsse (nach Länge), Seen (nach Größe)

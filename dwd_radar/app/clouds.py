@@ -110,31 +110,39 @@ class Clouds:
         self.last_check = now.timestamp()
         latest = now.replace(minute=0, second=0, microsecond=0)
         latest -= timedelta(hours=latest.hour % 3)
-        for k in range(0, 5):
-            run = latest - timedelta(hours=3 * k)
-            s0 = max(0, math.floor((need_from - run).total_seconds() / 3600))
-            s1 = math.ceil((need_to - run).total_seconds() / 3600)
-            if s1 > 45:
-                continue
-            files = self._listing(run.hour)
-            names = {s: files.get((run, s)) for s in range(s0, s1 + 1)}
-            if not all(names.values()):
-                continue
-            if run == self.run and all(s in self.fields for s in names):
-                return
-            fields = {}
-            for s, name in names.items():
-                if run == self.run and s in self.fields:
-                    fields[s] = self.fields[s]
+        listings: dict[int, dict] = {}
+        # 1st pass: newest run that covers the whole window (incl. the past);
+        # 2nd pass: newest run at all (past frames before its start get no clouds)
+        for full_cover in (True, False):
+            for k in range(0, 6):
+                run = latest - timedelta(hours=3 * k)
+                if full_cover and run > need_from:
                     continue
-                r = self.http.get(BASE.format(hh=run.hour) + name, timeout=60, headers=UA)
-                r.raise_for_status()
-                fields[s] = self._to_target(decode(bz2.decompress(r.content)))
-            if run != self.run:
-                log.info("ICON-D2-Lauf %s geladen (Schritte %d–%d)", run.strftime("%d.%m. %H UTC"), s0, s1)
-            self.run, self.fields = run, fields
-            self.error = None
-            return
+                s0 = max(0, math.floor((need_from - run).total_seconds() / 3600))
+                s1 = math.ceil((need_to - run).total_seconds() / 3600)
+                if s1 > 45:
+                    continue
+                if run.hour not in listings:
+                    listings[run.hour] = self._listing(run.hour)
+                files = listings[run.hour]
+                names = {s: files.get((run, s)) for s in range(s0, s1 + 1)}
+                if not all(names.values()):
+                    continue
+                if run == self.run and all(s in self.fields for s in names):
+                    return
+                fields = {}
+                for s, name in names.items():
+                    if run == self.run and s in self.fields:
+                        fields[s] = self.fields[s]
+                        continue
+                    r = self.http.get(BASE.format(hh=run.hour) + name, timeout=60, headers=UA)
+                    r.raise_for_status()
+                    fields[s] = self._to_target(decode(bz2.decompress(r.content)))
+                if run != self.run:
+                    log.info("ICON-D2-Lauf %s geladen (Schritte %d–%d)", run.strftime("%d.%m. %H UTC"), s0, s1)
+                self.run, self.fields = run, fields
+                self.error = None
+                return
         raise RuntimeError("kein vollständiger ICON-D2-Lauf mit CLCT gefunden")
 
     # ------------------------------------------------------------- render
