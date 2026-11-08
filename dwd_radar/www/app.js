@@ -43,19 +43,22 @@
     map.createPane('labels').classList.add('labels-pane');
     map.getPane('labels').style.zIndex = 450;
 
-    var carto = 'https://{s}.basemaps.cartocdn.com/{style}/{z}/{x}/{y}{r}.png';
-    L.tileLayer(carto, {
-      style: 'light_nolabels', subdomains: 'abcd', maxZoom: 19, keepBuffer: 1,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © CARTO'
+    var bm = cfg.basemap;
+    var base = L.tileLayer(bm.url, {
+      subdomains: bm.subdomains || 'abc', maxZoom: 19, maxNativeZoom: bm.maxNativeZoom, keepBuffer: 1,
+      attribution: bm.attribution
     }).addTo(map);
+    if (bm.filter) base.getContainer().style.filter = bm.filter;
     if (cfg.hillshade) {
       L.tileLayer('hillshade/{z}/{x}/{y}.png?v=' + cfg.version, {
         pane: 'hill', maxNativeZoom: cfg.maxZoom, minNativeZoom: 5, keepBuffer: 1,
         attribution: 'Relief: AWS Terrain Tiles'
       }).addTo(map);
     }
-    L.tileLayer(carto, { style: 'light_only_labels', subdomains: 'abcd', maxZoom: 19, pane: 'labels', keepBuffer: 1 })
-      .addTo(map);
+    if (bm.labels) {
+      L.tileLayer(bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1 })
+        .addTo(map);
+    }
 
     map.attributionControl.addAttribution('Radar: © Deutscher Wetterdienst');
 

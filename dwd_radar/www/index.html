@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>DWD Regenradar</title>
 <link rel="stylesheet" href="lib/leaflet/leaflet.css">
-<link rel="stylesheet" href="style.css?v=__V__">
 </head>
 <body>
 <div id="map"></div>
@@ -24,6 +23,18 @@
   </div>
 </div>
 <script src="lib/leaflet/leaflet.js"></script>
-<script src="app.js?v=__V__"></script>
+<script>
+/* index.html is cached by the browser (/local: 31 days) – load app files with the current version */
+(function () {
+  var v = String(Date.now());
+  var go = function (ver) {
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'style.css?v=' + ver;
+    document.head.appendChild(l);
+    var s = document.createElement('script'); s.src = 'app.js?v=' + ver; document.body.appendChild(s);
+  };
+  fetch('config.json?_=' + v, { cache: 'no-store' }).then(function (r) { return r.json(); })
+    .then(function (c) { go(c.version || v); }).catch(function () { go(v); });
+})();
+</script>
 </body>
 </html>

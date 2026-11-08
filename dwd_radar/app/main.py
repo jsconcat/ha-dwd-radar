@@ -59,6 +59,7 @@ def load_options() -> dict:
         "frame_ms": 450, "hold_now_ms": 1500, "hold_end_ms": 2500,
         "controls_hide_s": 6, "reset_view_s": 90, "stale_minutes": 20,
         "hillshade": True, "hillshade_strength": 1.0,
+        "basemap": "basemapde", "carto_key": "",
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -213,6 +214,39 @@ class Radar:
                        last_error=self.last_error)
 
 
+BASEMAPS = {
+    "basemapde": {
+        "url": "https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
+        "attribution": "© GeoBasis-DE / BKG (2026) CC BY 4.0",
+        "maxNativeZoom": 18, "labels": None, "filter": "",
+    },
+    "carto": {
+        "url": "https://{s}.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}{r}.png?key={key}",
+        "labels": "https://{s}.basemaps.cartocdn.com/rastertiles/light_only_labels/{z}/{x}/{y}{r}.png?key={key}",
+        "attribution": "© OpenStreetMap · © CARTO", "maxNativeZoom": 19, "subdomains": "abcd", "filter": "",
+    },
+    "osm": {
+        "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "attribution": "© OpenStreetMap", "maxNativeZoom": 19, "labels": None,
+        "filter": "grayscale(0.9) brightness(1.06) contrast(0.88)",
+    },
+}
+
+
+def basemap_cfg(opt: dict) -> dict:
+    name = opt.get("basemap", "basemapde")
+    if name == "carto" and not opt.get("carto_key"):
+        log.warning("basemap=carto ohne carto_key – CARTO liefert ohne Key keine Kacheln; nutze basemap.de")
+        name = "basemapde"
+    b = dict(BASEMAPS.get(name, BASEMAPS["basemapde"]))
+    key = str(opt.get("carto_key", ""))
+    b["url"] = b["url"].replace("{key}", key)
+    if b.get("labels"):
+        b["labels"] = b["labels"].replace("{key}", key)
+    b["name"] = name
+    return b
+
+
 def install_web(opt: dict, bounds) -> None:
     """Copy the static page and write config.json (read by the page)."""
     WWW.mkdir(parents=True, exist_ok=True)
@@ -240,6 +274,7 @@ def install_web(opt: dict, bounds) -> None:
         "frameMs": opt["frame_ms"], "holdNowMs": opt["hold_now_ms"], "holdEndMs": opt["hold_end_ms"],
         "controlsHideS": opt["controls_hide_s"], "resetViewS": opt["reset_view_s"],
         "hillshade": bool(opt["hillshade"]),
+        "basemap": basemap_cfg(opt),
     }
     atomic_write(WWW / "config.json", json.dumps(cfg, indent=1).encode())
 
