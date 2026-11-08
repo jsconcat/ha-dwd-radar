@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.2
+- Zeitleiste flüssig: Bewegung per requestAnimationFrame, Schwung beim Loslassen, weiches Einrasten, Bildwechsel beim Ziehen gedrosselt und asynchron dekodiert, keine Layout-Messungen während der Bewegung
+
 ## 0.6.1
 - Zeitleiste in Blöcke je Quelle/Auflösung getrennt (Radar, ICON-D2, ICON-EU 1 h/3 h, ICON), eigener Maßstab je Block, Beschriftung bleibt sichtbar
 

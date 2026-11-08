@@ -141,7 +141,10 @@
   }
 
   // double-buffered overlay: the next image becomes visible only once loaded
-  function Swapper(a, b) { this.a = a; this.b = b; this.front = a; this.url = null; }
+  function Swapper(a, b) {
+    this.a = a; this.b = b; this.front = a; this.url = null;
+    [a, b].forEach(function (o) { var el = o.getElement(); if (el) el.decoding = 'async'; });
+  }
   Swapper.prototype.set = function (url, op, bounds, isCurrent) {
     var self = this;
     if (!url) { this.a.setOpacity(0); this.b.setOpacity(0); this.url = null; return; }
@@ -171,8 +174,7 @@
     radarSw.set(f.u, f.k === 'o' ? 1 : 0.85, L.latLngBounds(f.k === 'm' ? manifest.mbounds : manifest.bounds), isCur);
     cloudSw.set(f.c || null, 1, L.latLngBounds(manifest.mbounds), isCur);
     updateStamp();
-    if (!keepStrip) placeStrip(ms(f.t));
-    updateBubble(ms(f.t));
+    if (!keepStrip) { placeStrip(ms(f.t), true); updateBubble(ms(f.t)); }
   }
 
   function sourceLabel(f) { return (manifest.sources && manifest.sources[f.s]) || 'Modell'; }
@@ -270,25 +272,84 @@
     return 0;
   }
   function stripEnd() { var b = blocks[blocks.length - 1]; return b ? b.x0 + (b.t1 - b.t0) * b.k : 0; }
-  function tlWidth() { return $('tl').clientWidth || 300; }
+  var labelEls = [], labelW = [], tlW = 0;
   function moveStrip(x) {
     stripX = x;
     $('strip').style.transform = 'translate3d(' + stripX.toFixed(1) + 'px,0,0)';
-    // keep each block label visible while its block is on screen ("sticky")
-    var labels = $('strip').querySelectorAll('.blabel');
-    for (var i = 0; i < labels.length && i < blocks.length; i++) {
+    // keep each block label visible while its block is on screen ("sticky"); no layout reads here
+    for (var i = 0; i < labelEls.length && i < blocks.length; i++) {
       var b = blocks[i], bl = b.x0 - PAD, bw = (b.t1 - b.t0) * b.k + 2 * PAD;
-      var lw = labels[i].offsetWidth || 120;
-      var want = -stripX + 6 - bl;
-      labels[i].style.left = Math.max(6, Math.min(bw - lw - 6, want)).toFixed(1) + 'px';
+      var off = Math.max(0, Math.min(bw - labelW[i] - 12, -stripX - bl));
+      labelEls[i].style.transform = 'translate3d(' + off.toFixed(1) + 'px,0,0)';
     }
   }
-  function placeStrip(t) { moveStrip(tlWidth() / 2 - xOf(t)); }
+  function measure() {
+    tlW = $('tl').clientWidth || tlW || 300;
+    labelEls = Array.prototype.slice.call($('strip').querySelectorAll('.blabel'));
+    labelW = labelEls.map(function (e) { return e.offsetWidth || 120; });
+  }
+
+  // --- smooth motion: everything visual happens in requestAnimationFrame
+  var anim = null, rafId = 0, lastSwap = 0, pendingIdx = -1;
+  function frameAtX(x) { return nearestFrame(tOf(tlW / 2 - x)); }
+  function loop(ts) {
+    rafId = 0;
+    if (anim) {
+      if (anim.type === 'tween') {
+        var p = Math.min(1, (ts - anim.t0) / anim.dur), e = 1 - Math.pow(1 - p, 3);
+        moveStrip(anim.from + (anim.to - anim.from) * e);
+        if (p >= 1) { var done = anim.done; anim = null; if (done) done(); }
+      } else if (anim.type === 'fling') {
+        var dt = Math.min(50, ts - anim.last); anim.last = ts;
+        var nx = stripX + anim.v * dt;
+        var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD;
+        if (nx > hi || nx < lo) { nx = Math.max(lo, Math.min(hi, nx)); anim.v = 0; }
+        moveStrip(nx);
+        anim.v *= Math.pow(0.94, dt / 16);
+        if (Math.abs(anim.v) < 0.03) { anim = null; snap(); }
+      }
+    }
+    // frame/bubble follow the strip position, image swaps rate-limited while moving
+    var follow = dragging || (anim && anim.follow);
+    if (follow) {
+      var i = frameAtX(stripX);
+      updateBubble(tOf(tlW / 2 - stripX));
+      if (i !== cur && i !== pendingIdx) pendingIdx = i;
+    }
+    var moving = !!anim || dragging;
+    if (pendingIdx >= 0 && (!moving || ts - lastSwap > 120)) {
+      lastSwap = ts; var k = pendingIdx; pendingIdx = -1;
+      if (k !== cur) show(k, true);
+    }
+    if (anim || dragging || pendingIdx >= 0) rafId = requestAnimationFrame(loop);
+  }
+  function kick() { if (!rafId) rafId = requestAnimationFrame(loop); }
+  function animateTo(x, dur, done, follow) {
+    anim = { type: 'tween', from: stripX, to: x, t0: performance.now(), dur: dur || 220, done: done, follow: !!follow };
+    kick();
+  }
+  function snap() {
+    var i = frameAtX(stripX);
+    animateTo(tlW / 2 - xOf(ms(frames[i].t)), 200, function () { if (i !== cur) show(i, true); updateBubble(ms(frames[i].t)); }, true);
+  }
+  function placeStrip(t, smooth) {
+    if (!tlW) measure();
+    var x = tlW / 2 - xOf(t);
+    if (smooth && $('bar') && !$('bar').classList.contains('hidden')) animateTo(x, 260);
+    else { anim = null; moveStrip(x); }
+  }
+  var dragging = false;
+  var lastBubble = '', lastAway = null;
   function updateBubble(t) {
-    $('bubble-t').textContent = (frames[cur] && (frames[cur].k === 'm' || !sameDay(t, Date.now()))) ? dayhm(t) : hm(t);
+    var i = nearestFrame(t), f = frames[i];
+    var txt = f ? ((f.k === 'm' || !sameDay(ms(f.t), Date.now())) ? dayhm(ms(f.t)) : hm(ms(f.t))) : '';
+    if (txt !== lastBubble) { $('bubble-t').textContent = txt; lastBubble = txt; }
     var away = Math.abs(xOf(t) - xOf(ms(frames[loopStart()].t))) > 45;
-    $('bubble').className = 'bubble' + (cur !== loopStart() ? ' away' : '');
-    $('tl').className = 'tl' + (away ? ' away' : '');
+    if (away !== lastAway) {
+      $('bubble').className = 'bubble' + (away ? ' away' : '');
+      $('tl').className = 'tl' + (away ? ' away' : '');
+      lastAway = away;
+    }
   }
 
   function buildStrip() {
@@ -330,6 +391,7 @@
     html.push('<div class="nowmark" style="left:' + px(xOf(tNow)) + '"><span>Aktuell</span></div>');
     strip.innerHTML = html.join('');
     strip.style.width = Math.ceil(stripEnd() + PAD + 1) + 'px';
+    measure();
   }
 
   function nearestFrame(t) {
@@ -347,9 +409,10 @@
     $('zoom').classList.remove('hidden');
     clearTimeout(hideTimer);
     hideTimer = setTimeout(hideControls, cfg.controlsHideS * 1000);
-    if (cur >= 0) placeStrip(ms(frames[cur].t));     // width known only when visible
+    if (cur >= 0 && !dragging && !anim) { measure(); placeStrip(ms(frames[cur].t)); }
   }
   function hideControls() {
+    if (dragging || anim) { hideTimer = setTimeout(hideControls, 1000); return; }
     $('bar').classList.add('hidden');
     $('zoom').classList.add('hidden');
     userActive = false;
@@ -364,31 +427,40 @@
     var tl = $('tl'), drag = null;
     tl.addEventListener('pointerdown', function (ev) {
       if (ev.target.closest && ev.target.closest('#bubble')) return;
-      drag = { x0: ev.clientX, s0: stripX, moved: false };
+      anim = null; dragging = true;
+      drag = { x0: ev.clientX, s0: stripX, moved: false, hist: [[performance.now(), ev.clientX]] };
       tl.setPointerCapture(ev.pointerId);
       setPlaying(false); showControls();
+      kick();
     });
     tl.addEventListener('pointermove', function (ev) {
       if (!drag) return;
       var dx = ev.clientX - drag.x0;
-      if (Math.abs(dx) > 3) drag.moved = true;
-      var half = tlWidth() / 2;
-      moveStrip(Math.min(half - PAD, Math.max(half - stripEnd(), drag.s0 + dx)));
-      var t = tOf(half - stripX);
-      var i = nearestFrame(t);
-      if (i !== cur) show(i, true);
-      updateBubble(t);
-      showControls();
+      if (Math.abs(dx) > 4) drag.moved = true;
+      var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD, x = drag.s0 + dx;
+      if (x > hi) x = hi + (x - hi) * 0.3;           // soft edges
+      if (x < lo) x = lo + (x - lo) * 0.3;
+      moveStrip(x);
+      var now = performance.now();
+      drag.hist.push([now, ev.clientX]);
+      while (drag.hist.length > 2 && now - drag.hist[0][0] > 100) drag.hist.shift();
+      kick();
     });
     var end = function (ev) {
       if (!drag) return;
-      if (!drag.moved) {                       // tap on the strip: jump to that time
+      dragging = false;
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideControls, cfg.controlsHideS * 1000);
+      if (!drag.moved) {                       // tap on the strip: glide to that time
         var r = tl.getBoundingClientRect();
-        var t = tOf(ev.clientX - r.left - stripX);
-        show(nearestFrame(t));
-      } else if (cur >= 0) {
-        placeStrip(ms(frames[cur].t));         // snap to the frame
-        updateBubble(ms(frames[cur].t));
+        var i = nearestFrame(tOf(ev.clientX - r.left - stripX));
+        animateTo(tlW / 2 - xOf(ms(frames[i].t)), 260, function () { show(i, true); updateBubble(ms(frames[i].t)); });
+      } else {
+        var h = drag.hist, a = h[0], b = h[h.length - 1];
+        var v = (b[0] - a[0]) > 0 ? (b[1] - a[1]) / (b[0] - a[0]) : 0;   // px per ms
+        var lo = tlW / 2 - stripEnd(), hi = tlW / 2 - PAD;
+        if (stripX > hi || stripX < lo || Math.abs(v) < 0.15) snap();
+        else { anim = { type: 'fling', v: Math.max(-4, Math.min(4, v)), last: performance.now() }; kick(); }
       }
       drag = null;
     };
@@ -396,7 +468,7 @@
     tl.addEventListener('pointercancel', end);
     $('bar').addEventListener('click', function (e) { e.stopPropagation(); showControls(); });
     $('zoom').addEventListener('click', function (e) { e.stopPropagation(); });
-    window.addEventListener('resize', function () { if (cur >= 0) placeStrip(ms(frames[cur].t)); });
+    window.addEventListener('resize', function () { measure(); if (cur >= 0) placeStrip(ms(frames[cur].t)); });
   }
 
   // -------------------------------------------------------------- manifest
