@@ -32,7 +32,7 @@ T = 512                       # rendered tile size (2x)
 S = T / 256                   # scale factor vs. CSS pixels
 
 # minimum population per zoom (dense enough to orient, collision does the rest)
-MIN_POP = {5: 400_000, 6: 250_000, 7: 120_000, 8: 40_000, 9: 12_000, 10: 4_000, 11: 1_500, 12: 1_000,
+MIN_POP = {5: 400_000, 6: 250_000, 7: 150_000, 8: 60_000, 9: 22_000, 10: 7_000, 11: 2_000, 12: 1_000,
            13: 1_000, 14: 1_000}
 COUNTRY = dict(fill=(96, 106, 116, 255), width=round(1.6 * S))
 STATE = dict(fill=(140, 150, 160, 230), width=round(1.0 * S))

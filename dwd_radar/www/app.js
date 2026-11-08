@@ -3,7 +3,7 @@
   'use strict';
 
   var cfg, map, frames = [], nowIdx = -1, cur = -1;
-  var ovA, ovB, front, preload = [], manifest = null;
+  var ovA, ovB, preload = [], manifest = null;
   var playing = true, timer = null, hideTimer = null, resetTimer = null;
   var lastGenerated = null;
 
@@ -42,6 +42,8 @@
     map.getPane('base').style.zIndex = 240;
     map.createPane('hill').classList.add('hill-pane');
     map.getPane('hill').style.zIndex = 250;
+    map.createPane('clouds').classList.add('hill-pane');
+    map.getPane('clouds').style.zIndex = 390;
     map.createPane('labels').classList.add('labels-pane');
     map.getPane('labels').style.zIndex = 450;
 
@@ -77,7 +79,6 @@
       { opacity: 0, interactive: false }).addTo(map);
     ovB = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', b,
       { opacity: 0, interactive: false }).addTo(map);
-    front = ovA;
 
     cfg.pins.forEach(function (p) {
       L.marker([p.lat, p.lon], { icon: pinIcon(p), interactive: false, keyboard: false,
@@ -99,27 +100,45 @@
   // ------------------------------------------------------------- frames
   function frameOpacity(i) { return frames[i] && frames[i].k === 'f' ? 0.82 : 1; }
 
+  // double-buffered image overlay: next image becomes visible only once loaded
+  function Swapper(a, b) { this.a = a; this.b = b; this.front = a; this.url = null; }
+  Swapper.prototype.set = function (url, op, isCurrent) {
+    var self = this;
+    if (!url) { this.a.setOpacity(0); this.b.setOpacity(0); this.url = null; return; }
+    if (url === this.url) { this.front.setOpacity(op); return; }
+    this.url = url;
+    var back = this.front === this.a ? this.b : this.a, done = false;
+    var swap = function () {
+      if (done || !isCurrent()) return;
+      done = true;
+      back.setOpacity(op);
+      self.front.setOpacity(0);
+      self.front = back;
+    };
+    back.once('load', swap);
+    back.setUrl(url);
+    var img = back.getElement();
+    if (img && img.complete && img.naturalWidth > 1 && img.src.indexOf(url) >= 0) swap();
+  };
+  var radarSw = null, cloudSw = null;
+
   function show(i) {
     if (i < 0 || i >= frames.length) return;
     cur = i;
     var f = frames[i];
-    var back = front === ovA ? ovB : ovA;
-    var url = f.u;
-    var done = false;
-    var swap = function () {
-      if (done || cur !== i) return;
-      done = true;
-      back.setOpacity(frameOpacity(i));
-      front.setOpacity(0);
-      front = back;
-    };
-    back.once('load', swap);
-    back.setUrl(url);
-    // already-cached images may not fire load reliably on some WebViews
-    var img = back.getElement();
-    if (img && img.complete && img.naturalWidth > 1 && img.src.indexOf(url) >= 0) swap();
+    var isCur = function () { return cur === i; };
+    if (!radarSw) radarSw = new Swapper(ovA, ovB);
+    radarSw.set(f.u, frameOpacity(i), isCur);
+    if (cloudSw) cloudSw.set(f.c || null, 1, isCur);
     updateStamp();
     updateKnob();
+  }
+
+  function ensureClouds(cb) {
+    if (!cb || cloudSw) return;
+    var blank = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+    var o = { opacity: 0, interactive: false, pane: 'clouds' };
+    cloudSw = new Swapper(L.imageOverlay(blank, cb, o).addTo(map), L.imageOverlay(blank, cb, o).addTo(map));
   }
 
   function updateStamp() {
@@ -227,12 +246,17 @@
   // ------------------------------------------------------------ manifest
   function applyManifest(m) {
     manifest = m;
+    ensureClouds(m.cbounds);
     var oldUrl = frames[cur] ? frames[cur].u : null;
     frames = m.frames || [];
     nowIdx = -1;
     for (var i = 0; i < frames.length; i++) if (frames[i].t === m.now && frames[i].k === 'o') nowIdx = i;
     // preload (keeps images in the memory cache); drop references of old frames
-    preload = frames.map(function (f) { var im = new Image(); im.src = f.u; return im; });
+    preload = [];
+    frames.forEach(function (f) {
+      var im = new Image(); im.src = f.u; preload.push(im);
+      if (f.c) { var ic = new Image(); ic.src = f.c; preload.push(ic); }
+    });
     buildTrack();
     var idx = -1;
     for (var j = 0; j < frames.length; j++) if (frames[j].u === oldUrl) idx = j;

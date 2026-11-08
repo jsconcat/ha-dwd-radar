@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+- Wolken (Gesamtbedeckung ICON-D2, Modell) unter dem Regen, stündlich, auf 5-min-Bilder überblendet
+- Weniger Details bei kleinen Zoomstufen: Orte, Flüsse (nach Länge), Seen (nach Größe)
+- Autobahnen mit dunklerem Rand
+
 ## 0.3.0
 - Gewässer (Flüsse, Seen) und Autobahnen unter dem Regen (OSM via Overpass, Fallback Natural Earth)
 - Hintergrund leicht salbeigrün

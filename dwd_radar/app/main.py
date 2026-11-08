@@ -24,6 +24,7 @@ from ha import HA
 from hillshade import Hillshade
 from mapoverlay import MapOverlay
 from landmarks import Landmarks
+from clouds import Clouds
 from render import Extent, Renderer
 
 OPTIONS = Path(os.environ.get("OPTIONS_FILE", "/data/options.json"))
@@ -62,6 +63,7 @@ def load_options() -> dict:
         "controls_hide_s": 6, "reset_view_s": 90, "stale_minutes": 20,
         "hillshade": True, "hillshade_strength": 1.0,
         "basemap": "own", "carto_key": "", "basemap_filter": "",
+        "show_clouds": True, "cloud_opacity": 1.0,
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -76,6 +78,11 @@ class Radar:
         self.renderer = Renderer(
             Extent(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"]),
             opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"])
+        self.clouds = None
+        if opt.get("show_clouds"):
+            self.clouds = Clouds(Extent(opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"],
+                                        opt["extent_lon_max"]), WWW / "frames" / "clouds", 1000.0,
+                                 float(opt.get("cloud_opacity", 1.0)))
         self.obs_dir = WWW / "frames" / "obs"
         self.fc_dir = WWW / "frames" / "fc"
         self.state_file = DATA / "state.json"
@@ -164,6 +171,38 @@ class Radar:
         self.last_error = None
         self.ha.clear_error()
 
+    # ----------------------------------------------------------------- clouds
+    def attach_clouds(self, frames: list[dict]):
+        if not self.clouds or not frames:
+            return None
+        c = self.clouds
+        try:
+            t0 = datetime.strptime(frames[0]["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            t1 = datetime.strptime(frames[-1]["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            c.refresh(t0, t1)
+        except Exception as e:
+            c.error = f"{type(e).__name__}: {e}"
+            log.warning("Wolken nicht aktualisiert: %s", c.error)
+            self.ha.log("warning", f"Wolken (ICON-D2) nicht aktualisiert: {c.error}")
+        if not c.run:
+            return None
+        keep = set()
+        for f in frames:
+            t = datetime.strptime(f["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            p = c.path_for(t)
+            if not p.exists():
+                cc = c.cover_at(t)
+                if cc is None:
+                    continue
+                atomic_write(p, c.png(cc))
+            keep.add(p.name)
+            f["c"] = f"frames/clouds/{p.name}"
+        cutoff = time.time() - 900
+        for p in c.out.glob("c_*.png"):
+            if p.name not in keep and p.stat().st_mtime < cutoff:
+                p.unlink(missing_ok=True)
+        return c.bounds
+
     # --------------------------------------------------------------- manifest
     def cleanup_and_manifest(self) -> None:
         now = datetime.now(timezone.utc)
@@ -191,11 +230,13 @@ class Radar:
                     lead = int(p.stem[2:])
                     t = self.last_run + timedelta(minutes=lead)
                     frames.append({"t": iso(t), "k": "f", "u": f"frames/fc/{d.name}/{p.name}"})
+        cbounds = self.attach_clouds(frames)
         age_min = (now - newest_obs).total_seconds() / 60 if newest_obs else None
         stale = age_min is None or age_min > self.o["stale_minutes"]
         manifest = {
             "generated": iso(now),
             "bounds": self.renderer.bounds,
+            "cbounds": cbounds,
             "now": iso(newest_obs) if newest_obs else None,
             "run": iso(fc_run) if fc_run else None,
             "stale": stale,

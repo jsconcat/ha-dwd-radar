@@ -28,7 +28,7 @@ UA = {"User-Agent": "ha-dwd-radar (Home Assistant add-on)"}
 
 WATER = (170, 200, 228, 255)
 RIVER = (150, 188, 222, 255)
-MW_CASE = (160, 168, 176, 255)
+MW_CASE = (128, 136, 146, 255)
 MW = (255, 255, 255, 255)
 
 
@@ -105,7 +105,7 @@ class Landmarks:
 
     def load(self) -> dict:
         self.cache.mkdir(parents=True, exist_ok=True)
-        key = hashlib.sha1(json.dumps([self.wide, self.extent, 2]).encode()).hexdigest()[:10]
+        key = hashlib.sha1(json.dumps([self.wide, self.extent, 3]).encode()).hexdigest()[:10]
         cf = self.cache / f"osm_{key}.json"
         if cf.exists():
             return json.loads(cf.read_text())
@@ -123,7 +123,11 @@ class Landmarks:
                 g = [(round(p["lon"], 5), round(p["lat"], 5)) for p in el.get("geometry", []) if p]
                 if len(g) < 2:
                     continue
-                (mw if el.get("tags", {}).get("highway") == "motorway" else rv).append(g)
+                tags = el.get("tags", {})
+                if tags.get("highway") == "motorway":
+                    mw.append(g)
+                else:
+                    rv.append([tags.get("name", ""), g])
             for el in d2.get("elements", []):
                 if el["type"] == "way":
                     g = [(round(p["lon"], 5), round(p["lat"], 5)) for p in el.get("geometry", []) if p]
@@ -143,7 +147,7 @@ class Landmarks:
         except Exception as e:
             log.warning("OSM nicht verfügbar (%s) – nutze Natural Earth (grober)", e)
             b = json.loads((DATA / "borders.json").read_text())
-            return {"source": "ne", "motorway": b["ne_motorway"], "rivers": b["ne_rivers"],
+            return {"source": "ne", "motorway": b["ne_motorway"], "rivers": [["NE", g] for g in b["ne_rivers"]],
                     "water": [p[0] for p in b["ne_lakes"]]}
         tmp = cf.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, separators=(",", ":")))
@@ -167,8 +171,25 @@ class Landmarks:
                     bins.setdefault((tx, ty), []).append(pts)
         return bins
 
+    @staticmethod
+    def _len_km(g) -> float:
+        k = 111.32
+        return sum(math.hypot((x2 - x1) * k * math.cos(math.radians(y1)), (y2 - y1) * k)
+                   for (x1, y1), (x2, y2) in zip(g, g[1:]))
+
+    def rivers_for_zoom(self, rivers, z: int):
+        """Only long rivers when zoomed out (length summed per river name)."""
+        if z >= 11:
+            return [g for _, g in rivers]
+        total: dict[str, float] = {}
+        for name, g in rivers:
+            if name:
+                total[name] = total.get(name, 0.0) + self._len_km(g)
+        need = 120 if z <= 8 else (50 if z == 9 else 20)
+        return [g for name, g in rivers if name == "NE" or (name and total.get(name, 0) >= need)]
+
     def ensure(self, jobs) -> None:
-        sig = hashlib.sha1(json.dumps([jobs, self.extent, WATER, RIVER, MW, 3]).encode()).hexdigest()[:12]
+        sig = hashlib.sha1(json.dumps([jobs, self.extent, WATER, RIVER, MW, MW_CASE, 4]).encode()).hexdigest()[:12]
         marker = self.out / f".done_{sig}"
         if marker.exists():
             log.info("Gewässer/Autobahn-Kacheln vorhanden (%s)", sig)
@@ -177,8 +198,9 @@ class Landmarks:
         self.out.mkdir(parents=True, exist_ok=True)
         zs = sorted({z for _, z0, z1 in jobs for z in range(z0, z1 + 1)})
         for z in zs:
-            water = self._bin(data["water"], z, min_px=(3 if z >= 10 else 6) * S) if z >= 8 else {}
-            rivers = self._bin(data["rivers"], z)
+            wmin = {8: 10, 9: 7, 10: 4}.get(z, 3)
+            water = self._bin(data["water"], z, min_px=wmin * S) if z >= 8 else {}
+            rivers = self._bin(self.rivers_for_zoom(data["rivers"], z), z)
             mw = self._bin(data["motorway"], z) if z >= 6 else {}
             rw, mww = river_w(z), mw_w(z)
             tiles = {(tx, ty) for box, z0, z1 in jobs if z0 <= z <= z1 for tx, ty in tiles_for(box, z)}
