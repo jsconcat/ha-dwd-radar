@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.4
+- Fix: ICON-D2-Verzeichnisse enthalten auch Ikosaeder-Dateien – es werden nur noch regular-lat-lon-Dateien verwendet (Fehler „KeyError: Ni“)
+
 ## 0.7.3
 - Fix: Vorhersage >2 h verschwand – Modellfelder wurden gelöscht, wenn in einem Durchlauf kein neuer Lauf gefunden wurde. Jetzt bleibt der bisherige Lauf aktiv, gelöscht werden nur abgelaufene Felder
 - Nach Neustart steht die Modell-Zeitleiste sofort aus den vorhandenen Bildern zur Verfügung

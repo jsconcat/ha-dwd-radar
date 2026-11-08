@@ -267,7 +267,15 @@ class ModelStore:
             files = {}
         else:
             r.raise_for_status()
-            files = {(utc(m.group(2)), int(m.group(3))): m.group(1) for m in STEP_RE.finditer(r.text)}
+            files = {}
+            for m in STEP_RE.finditer(r.text):
+                name = m.group(1)
+                # ICON-D2 directories hold icosahedral AND regular-lat-lon files: use regular-lat-lon there
+                if src.key != "gl" and "regular-lat-lon" not in name:
+                    continue
+                if src.key == "gl" and "icosahedral" not in name:
+                    continue
+                files[(utc(m.group(2)), int(m.group(3)))] = name
         self.listings[key] = (now, files)
         return files
 
