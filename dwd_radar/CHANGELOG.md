@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+- Fehlende Kachelstreifen behoben: Kartengröße wird bei jeder Größenänderung des iframes neu erfasst (ResizeObserver + Kontrolle alle 15 s), fehlende Kacheln werden nachgeladen
+- Fehlgeschlagene Kacheln werden bis zu zweimal erneut geladen
+
 ## 0.7.0
 - Stufenlose Anzeige: Überblendung zwischen benachbarten Bildern passend zur Zeitleisten-Position (Wischen, Schwung, Einrasten, Play)
 - Kein Flackern mehr: Bilder werden erst nach dem Dekodieren eingeblendet, bis dahin bleibt das vorherige sichtbar; Zeitpunkte ohne Wolkenbild nutzen das nächstgelegene

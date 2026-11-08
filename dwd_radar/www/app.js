@@ -87,29 +87,45 @@
     map.getPane('labels').style.zIndex = 450;
 
     var bm = cfg.basemap;
+    var tileLayers = [];
+    var track = function (layer) {
+      tileLayers.push(layer);
+      // a tile that failed to load is retried twice (e.g. busy server right after start)
+      layer.on('tileerror', function (e) {
+        var t = e.tile, n = (t._retries || 0) + 1;
+        if (n > 2) return;
+        t._retries = n;
+        setTimeout(function () {
+          var src = t.src.replace(/[?&]r=\d+/, '');
+          t.src = src + (src.indexOf('?') < 0 ? '?' : '&') + 'r=' + Date.now();
+        }, 1500 * n);
+      });
+      return layer;
+    };
     if (bm.url) {
       var base = L.tileLayer(bm.url, {
         subdomains: bm.subdomains || 'abc', maxZoom: 19, maxNativeZoom: bm.maxNativeZoom, keepBuffer: 1,
         attribution: bm.attribution
       }).addTo(map);
+      track(base);
       if (bm.filter) base.getContainer().style.filter = bm.filter;
     } else {
       map.attributionControl.addAttribution(bm.attribution);
     }
     if (bm.base) {
-      L.tileLayer(bm.base, { pane: 'base', maxNativeZoom: bm.maxNativeZoom, minNativeZoom: 5, keepBuffer: 1 })
-        .addTo(map);
+      track(L.tileLayer(bm.base, { pane: 'base', maxNativeZoom: bm.maxNativeZoom, minNativeZoom: 5, keepBuffer: 1 })
+        .addTo(map));
     }
     if (cfg.hillshade) {
-      L.tileLayer('hillshade/{z}/{x}/{y}.png?v=' + cfg.version, {
+      track(L.tileLayer('hillshade/{z}/{x}/{y}.png?v=' + cfg.version, {
         pane: 'hill', maxNativeZoom: cfg.maxZoom, minNativeZoom: 5, keepBuffer: 1,
         attribution: 'Relief: AWS Terrain Tiles'
-      }).addTo(map);
+      }).addTo(map));
     }
     if (bm.labels) {
-      L.tileLayer(bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1,
+      track(L.tileLayer(bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1,
         maxNativeZoom: bm.own ? bm.maxNativeZoom : 19, minNativeZoom: bm.own ? 5 : 0 })
-        .addTo(map);
+        .addTo(map));
     }
     map.attributionControl.addAttribution('Radar/Modelle: © Deutscher Wetterdienst');
 
@@ -120,6 +136,24 @@
       L.marker([p.lat, p.lon], { icon: pinIcon(p), interactive: false, keyboard: false,
         zIndexOffset: p.home ? 1000 : 0 }).addTo(map);
     });
+
+    // The iframe may get its final size only after Home Assistant has laid out the dashboard.
+    // Re-measure on every container size change (and every 15 s as a fallback) and load missing tiles.
+    var el = $('map'), resizeT = null;
+    var refit = function () {
+      var s0 = map.getSize();
+      if (s0.x === el.clientWidth && s0.y === el.clientHeight) return;
+      map.invalidateSize({ pan: false });
+      map.fire('moveend');
+      measure();
+      moveStrip(stripXForPos(pos));
+    };
+    var refitSoon = function () { clearTimeout(resizeT); resizeT = setTimeout(refit, 150); };
+    if (window.ResizeObserver) new ResizeObserver(refitSoon).observe(el);
+    window.addEventListener('resize', refitSoon);
+    setInterval(refit, 15000);
+    setTimeout(refit, 1000); setTimeout(refit, 4000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) refitSoon(); });
 
     map.on('click', function () { showControls(); });
     map.on('movestart zoomstart moveend zoomend', function () { armReset(); });
