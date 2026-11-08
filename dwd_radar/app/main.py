@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import logging
 import os
 import shutil
@@ -57,8 +58,7 @@ def load_options() -> dict:
     d = {
         "home_name": "Zuhause", "home_lat": 49.567, "home_lon": 8.317,
         "pins": [],
-        "extent_lat_min": 48.6, "extent_lat_max": 50.6,
-        "extent_lon_min": 6.3, "extent_lon_max": 10.3,
+        "area_radius_km": 120,
         "resolution_m": 500, "smoothing_km": 1.0, "radar_opacity": 1.0,
         "zoom": 9, "min_zoom": 7, "max_zoom": 12,
         "past_minutes": 120, "show_forecast": True,
@@ -70,6 +70,14 @@ def load_options() -> dict:
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
+    # map/data area: square-ish box around the home location
+    r = float(d["area_radius_km"])
+    dlat = r / 111.2
+    dlon = r / (111.32 * math.cos(math.radians(float(d["home_lat"]))))
+    d["extent_lat_min"], d["extent_lat_max"] = round(d["home_lat"] - dlat, 3), round(d["home_lat"] + dlat, 3)
+    d["extent_lon_min"], d["extent_lon_max"] = round(d["home_lon"] - dlon * 1.15, 3), round(d["home_lon"] + dlon * 1.15, 3)
+    d["forecast_days"] = max(0, min(7, int(d["forecast_days"])))
+    d["reset_view_s"] = max(0, min(120, int(d["reset_view_s"])))
     return d
 
 
@@ -389,6 +397,7 @@ def install_web(opt: dict, bounds) -> None:
         "pins": pins,
         "frameMs": opt["frame_ms"], "holdNowMs": opt["hold_now_ms"], "holdEndMs": opt["hold_end_ms"],
         "controlsHideS": opt["controls_hide_s"], "resetViewS": opt["reset_view_s"],
+        "forecastDays": opt["forecast_days"],
         "hillshade": bool(opt["hillshade"]),
         "basemap": basemap_cfg(opt),
     }

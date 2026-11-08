@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+- Konfiguration mit deutschen Beschriftungen: Vorhersage 0–7 Tage, Standort (Kartenbereich automatisch per Radius), Rückkehr zur Startansicht 0–120 s
+- Pro Dashboard-Karte per URL überschreibbar: ?days=, ?return=, ?zoom=, ?lat=&lon=
+- Zeitleiste mit festem Mittelpunkt (Zeit wird darunter verschoben), feiner Maßstab, Tagesmarken; Zeitblase springt zurück zu „Aktuell“
+- Zoom-Buttons (+/−) oben rechts beim Antippen
+- Caches an die Kartengeometrie gekoppelt (Standortwechsel sicher)
+
 ## 0.5.2
 - Modellfelder werden in /data zwischengespeichert: Neustart/Update ohne erneuten Download
 

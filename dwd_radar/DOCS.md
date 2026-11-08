@@ -15,16 +15,16 @@ sie als Leaflet-Seite bereit: `/local/dwd-radar/index.html` (iframe-Karte im Das
 |---|---|
 | `home_lat/home_lon/home_name` | Heimatort: hervorgehobener Pin, Kartenmitte |
 | `pins` | weitere Pins: `- name: Mannheim` / `lat:` / `lon:` (optional `home: true`) |
-| `extent_*` | Ausschnitt, für den Regenbilder berechnet werden |
+| `area_radius_km` | Kartenbereich um den Standort (Radius) |
 | `resolution_m` | Pixelgröße der Overlays (Web-Mercator-Meter) |
 | `smoothing_km` | Glättung (0 = keine) |
 | `zoom/min_zoom/max_zoom` | Start- und Grenzzoom |
 | `frame_ms/hold_now_ms/hold_end_ms` | Animationstempo |
 | `controls_hide_s` | Zeitleiste blendet sich nach x s aus |
-| `reset_view_s` | nach x s ohne Bedienung zurück zur Startansicht (0 = aus) |
+| `reset_view_s` | nach Verschieben/Zoomen nach x s zurück zur Startansicht (0 = aus, max. 120) |
 | `stale_minutes` | ab diesem Datenalter Hinweis „Stand …“ |
 | `show_clouds` / `cloud_opacity` | Wolken aus ICON-D2/EU/ICON (Modell, kein Satellit) |
-| `forecast_days` | Vorhersagehorizont 1–7 Tage (Modelle nach den 2 h Radar-Nowcast) |
+| `forecast_days` | 0 = keine Modellvorhersage, 1–7 Tage (nach den 2 h Radar-Nowcast) |
 | `basemap` | `own` (Grenzen/Orte/Gewässer/Autobahnen selbst erzeugt), `basemapde`, `carto` (Key), `osm` |
 | `hillshade*` | Relief aus offenen Höhendaten (einmalig erzeugt) |
 
@@ -36,3 +36,8 @@ sie als Leaflet-Seite bereit: `/local/dwd-radar/index.html` (iframe-Karte im Das
 ## Quellen / Lizenzen
 Radar: © Deutscher Wetterdienst (CC BY 4.0). Karte: © OpenStreetMap-Mitwirkende, © CARTO.
 Relief: AWS Terrain Tiles (Mapzen). Leaflet: BSD-2-Clause.
+
+## Einstellungen pro Dashboard-Karte (iframe-URL)
+`/local/dwd-radar/index.html?loader=1&days=3&return=30&zoom=10`
+- `days` 0–7 (höchstens so viele wie in der App eingestellt), `return` 0–120 s, `zoom`, `lat`/`lon` (Kartenmitte + Heimat-Pin,
+  muss im Kartenbereich der App liegen).

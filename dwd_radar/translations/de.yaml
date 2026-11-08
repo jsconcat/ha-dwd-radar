@@ -1,0 +1,67 @@
+configuration:
+  home_name:
+    name: Standort – Name
+    description: Bezeichnung des Heimatorts (nur intern).
+  home_lat:
+    name: Standort – Breitengrad
+    description: z. B. 49.567. Kartenmitte und Heimat-Pin. Ein neuer Standort erzeugt Karte und Daten einmalig neu (einige Minuten).
+  home_lon:
+    name: Standort – Längengrad
+    description: z. B. 8.317
+  area_radius_km:
+    name: Kartenbereich (Radius in km)
+    description: Gebiet um den Standort, für das Regen, Wolken und Karte berechnet werden.
+  pins:
+    name: Weitere Pins
+    description: Zusätzliche Markierungen (Name, lat, lon).
+  forecast_days:
+    name: Vorhersage (Tage)
+    description: 0 = keine Modellvorhersage (nur 2 h Radar-Vorhersage), 1–7 = Tage mit DWD-Modellen (ICON-D2 → ICON-EU → ICON). Mehr Tage = mehr Download.
+  reset_view_s:
+    name: Automatisch zurück zur Startansicht (Sekunden)
+    description: Nach Verschieben/Zoomen nach x Sekunden zurück. 0 = aus.
+  zoom:
+    name: Start-Zoom
+    description: Zoomstufe der Startansicht (9 ≈ Pfalz/Rhein-Neckar).
+  min_zoom:
+    name: Minimaler Zoom
+  max_zoom:
+    name: Maximaler Zoom
+  show_clouds:
+    name: Wolken anzeigen
+    description: Gesamtbedeckung aus DWD-Modellen (kein Satellitenbild).
+  cloud_opacity:
+    name: Wolken – Deckkraft
+  radar_opacity:
+    name: Regen – Deckkraft
+  show_forecast:
+    name: Radar-Vorhersage (+2 h)
+  past_minutes:
+    name: Rückblick (Minuten)
+  frame_ms:
+    name: Animation – ms pro Bild
+  hold_now_ms:
+    name: Animation – Pause bei „Aktuell“ (ms)
+  hold_end_ms:
+    name: Animation – Pause am Ende (ms)
+  controls_hide_s:
+    name: Bedienelemente ausblenden nach (Sekunden)
+  stale_minutes:
+    name: Hinweis „veraltet“ ab (Minuten)
+  resolution_m:
+    name: Regen – Pixelgröße (m)
+  smoothing_km:
+    name: Regen – Glättung (km)
+  hillshade:
+    name: Relief anzeigen
+  hillshade_strength:
+    name: Relief – Stärke
+  basemap:
+    name: Grundkarte
+    description: own = eigene Karte (Grenzen, Orte, Gewässer, Autobahnen). Alternativen basemap.de, CARTO (Key nötig), OSM.
+  carto_key:
+    name: CARTO API-Key
+  basemap_filter:
+    name: Grundkarte – CSS-Filter
+  log_level:
+    name: Log-Level

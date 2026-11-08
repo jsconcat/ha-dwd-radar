@@ -81,6 +81,8 @@ class TargetGrid:
         y0 = y1 - self.ny * res_m
         ilat = lambda y: math.degrees(2 * math.atan(math.exp(y / R)) - math.pi / 2)
         self.bounds = [[ilat(y0), math.degrees(x0 / R)], [ilat(y1), math.degrees(x1 / R)]]
+        self.key = "%.4f_%.4f_%.4f_%.4f_%d" % (self.bounds[0][0], self.bounds[0][1], self.bounds[1][0],
+                                               self.bounds[1][1], res_m)
         xs = x0 + (np.arange(self.nx) + 0.5) * res_m
         ys = y1 - (np.arange(self.ny) + 0.5) * res_m
         lon = np.degrees(xs / R)
@@ -144,7 +146,8 @@ class IcoRegrid:
     def prepare(self, run: datetime) -> None:
         if self.idx is not None:
             return
-        f = self.cache / "icon_ico_weights.npz"
+        import hashlib
+        f = self.cache / f"icon_ico_weights_{hashlib.sha1(self.tg.key.encode()).hexdigest()[:10]}.npz"
         if f.exists():
             z = np.load(f)
             self.idx, self.w = z["idx"], z["w"]
@@ -214,12 +217,13 @@ class ModelStore:
                 _, key, run_s = f.stem.split("_")
                 run = utc(run_s)
                 z = np.load(f)
-                if run < cut or z["shape"].tolist() != list(self.tg.LAT.shape):
+                gk = str(z["grid"]) if "grid" in z.files else ""
+                if run < cut or gk != self.tg.key:
                     f.unlink(missing_ok=True)
                     continue
                 fields = {}
                 for name in z.files:
-                    if name == "shape":
+                    if name in ("shape", "grid"):
                         continue
                     var, step = name.split("-")
                     fields[(var, int(step))] = z[name].astype(np.float32)
@@ -245,7 +249,7 @@ class ModelStore:
             arrays = {f"{v}-{s}": a.astype(np.float16) for (v, s), a in rd.fields.items()}
             tmp = self.cache / (name + ".tmp")
             with open(tmp, "wb") as fh:
-                np.savez(fh, shape=np.array(self.tg.LAT.shape), **arrays)
+                np.savez(fh, shape=np.array(self.tg.LAT.shape), grid=np.array(self.tg.key), **arrays)
             tmp.replace(self.cache / name)
             self._saved[key] = (rd.run, len(rd.fields))
         for f in self.cache.glob("fields_*.npz"):
@@ -337,19 +341,20 @@ class ModelStore:
         cursor = first        # first frame time not yet covered
         new_runs = {}
         for src in SOURCES:
-            if cursor > end:
+            if cursor > end and src.key != "d2":
                 break
 
             def need(run, src=src, cursor=cursor):
                 steps_all = src.steps(run.hour)
                 last = run + timedelta(hours=src.max_step(run.hour))
-                if last < cursor:
+                hi = max(end, nowcast_end) if src.key == "d2" else end
+                if last < min(cursor, hi):
                     return None
                 lo = min(past_start, cursor) if src.key == "d2" else cursor
                 need_steps = set()
                 for s in steps_all:
                     t = run + timedelta(hours=s)
-                    if t < lo - timedelta(hours=3) or t > end:
+                    if t < lo - timedelta(hours=3) or t > hi + timedelta(hours=1):
                         continue
                     need_steps.add(s)
                 # precipitation needs the previous step too

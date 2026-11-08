@@ -1,5 +1,5 @@
 name: DWD Regenradar
-version: "0.5.2"
+version: "0.6.0"
 slug: dwd_radar
 description: Regenradar aus DWD-Open-Data (RV-Komposit + 2-h-Vorhersage) als Leaflet-Seite unter /local/dwd-radar/
 url: https://github.com/jsconcat/ha-dwd-radar
@@ -17,10 +17,7 @@ options:
   home_lat: 49.567
   home_lon: 8.317
   pins: []
-  extent_lat_min: 48.6
-  extent_lat_max: 50.6
-  extent_lon_min: 6.3
-  extent_lon_max: 10.3
+  area_radius_km: 120
   resolution_m: 500
   smoothing_km: 1.0
   radar_opacity: 1.0
@@ -46,17 +43,14 @@ options:
   log_level: info
 schema:
   home_name: str
-  home_lat: float(-90,90)
-  home_lon: float(-180,180)
+  home_lat: float(45,56)
+  home_lon: float(3,17)
   pins:
     - name: str?
       lat: float(-90,90)
       lon: float(-180,180)
       home: bool?
-  extent_lat_min: float(44,56)
-  extent_lat_max: float(44,56)
-  extent_lon_min: float(1,19)
-  extent_lon_max: float(1,19)
+  area_radius_km: int(40,250)
   resolution_m: int(150,2000)
   smoothing_km: float(0,5)
   radar_opacity: float(0.2,1)
@@ -69,7 +63,7 @@ schema:
   hold_now_ms: int(0,10000)
   hold_end_ms: int(0,10000)
   controls_hide_s: int(2,60)
-  reset_view_s: int(0,3600)
+  reset_view_s: int(0,120)
   stale_minutes: int(10,180)
   hillshade: bool
   hillshade_strength: float(0,3)
@@ -78,5 +72,5 @@ schema:
   basemap_filter: str?
   show_clouds: bool
   cloud_opacity: float(0.1,1)
-  forecast_days: int(1,7)
+  forecast_days: int(0,7)
   log_level: list(debug|info|warning|error)

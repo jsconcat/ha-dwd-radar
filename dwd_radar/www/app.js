@@ -1,28 +1,63 @@
 /* DWD Regenradar – Anzeige. Lädt nur fertige PNGs, keine Rechenarbeit im Browser.
- * Standard: pausiert auf "Aktuell". Play spielt Aktuell .. +2 h (Radar-Vorhersage) in Schleife.
- * Zeitleiste: Vergangenheit + 2 h Radar breit, Modellbereich (bis 7 Tage) gestaucht.
+ * - Standard: pausiert auf "Aktuell". Play spielt Aktuell .. +2 h (Radar-Vorhersage) in Schleife.
+ * - Zeitleiste mit festem Mittelpunkt: der Zeitstreifen wird darunter verschoben.
+ * - URL-Parameter (pro Dashboard-Karte): days, return, zoom, lat, lon
  */
 (function () {
   'use strict';
 
-  var cfg, map, manifest = null, frames = [], nowIdx = -1, fcEnd = -1, cur = -1;
+  var cfg, map, manifest = null, all = [], frames = [], nowIdx = -1, fcEnd = -1, cur = -1;
   var playing = false, timer = null, hideTimer = null, resetTimer = null, lastGenerated = null;
   var preload = [], radarSw = null, cloudSw = null, userActive = false;
   var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   var DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  var K_RADAR = 2.0 / 60000;      // px per ms in radar range (2 px/min)
+  var K_MODEL = 0.5 / 60000;      // px per ms in model range (0.5 px/min, 1 day = 720 px)
 
   var $ = function (id) { return document.getElementById(id); };
-  var hm = function (iso) {
-    return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-  };
-  var dayhm = function (iso) { return DAYS[new Date(iso).getDay()] + ' ' + hm(iso); };
-  function sameDay(a, b) { return new Date(a).toDateString() === new Date(b).toDateString(); }
+  var ms = function (iso) { return new Date(iso).getTime(); };
+  var hm = function (t) { return new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
+  var dayhm = function (t) { return DAYS[new Date(t).getDay()] + ' ' + hm(t); };
+  var sameDay = function (a, b) { return new Date(a).toDateString() === new Date(b).toDateString(); };
   function getJSON(url) {
     return fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + '_=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
   }
 
-  // ------------------------------------------------------------------ map
+  // ------------------------------------------------- per-card URL overrides
+  function applyUrlParams() {
+    var q = new URLSearchParams(location.search);
+    var num = function (k) { var v = parseFloat(q.get(k)); return isNaN(v) ? null : v; };
+    if (num('days') !== null) cfg.forecastDays = Math.max(0, Math.min(7, num('days')));
+    if (num('return') !== null) cfg.resetViewS = Math.max(0, Math.min(120, num('return')));
+    if (num('zoom') !== null) cfg.zoom = num('zoom');
+    if (num('lat') !== null && num('lon') !== null) {
+      cfg.center = [num('lat'), num('lon')];
+      cfg.pins.forEach(function (p) { if (p.home) { p.lat = num('lat'); p.lon = num('lon'); } });
+    }
+  }
+
+  // ---------------------------------------------------------------- UI DOM
+  // built here (not in index.html, which browsers may cache for weeks)
+  function buildDom() {
+    var bar = $('bar');
+    bar.innerHTML =
+      '<button id="play" class="play" aria-label="Wiedergabe">' +
+      '<svg id="ico-pause" viewBox="0 0 24 24" style="display:none"><rect x="6" y="5" width="4" height="14" rx="1"/>' +
+      '<rect x="14" y="5" width="4" height="14" rx="1"/></svg>' +
+      '<svg id="ico-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></svg></button>' +
+      '<div id="tl" class="tl"><div id="strip" class="strip"></div>' +
+      '<div class="center"></div><div id="bubble" class="bubble"><span id="bubble-t"></span>' +
+      '<span id="bubble-now" class="bnow" title="Zurück zu Aktuell">&#8635;</span></div></div>';
+    bar.className = 'bar hidden';
+    var z = document.createElement('div');
+    z.id = 'zoom';
+    z.className = 'zoombox hidden';
+    z.innerHTML = '<button id="zin" aria-label="Hineinzoomen">+</button><button id="zout" aria-label="Herauszoomen">&minus;</button>';
+    document.body.appendChild(z);
+  }
+
+  // ------------------------------------------------------------------- map
   function pinIcon(p) {
     var home = p.home;
     var w = home ? 24 : 18, h = home ? 32 : 24;
@@ -90,13 +125,19 @@
         zIndexOffset: p.home ? 1000 : 0 }).addTo(map);
     });
 
-    map.on('click', function () { showBar(); });
-    map.on('movestart zoomstart', function () { armReset(); });
+    map.on('click', function () { showControls(); });
+    map.on('movestart zoomstart moveend zoomend', function () { armReset(); });
+    $('zin').addEventListener('click', function (e) { e.stopPropagation(); map.zoomIn(); showControls(); });
+    $('zout').addEventListener('click', function (e) { e.stopPropagation(); map.zoomOut(); showControls(); });
   }
 
+  function atHome() {
+    var c = map.getCenter();
+    return map.getZoom() === cfg.zoom && Math.abs(c.lat - cfg.center[0]) < 1e-3 && Math.abs(c.lng - cfg.center[1]) < 1e-3;
+  }
   function armReset() {
     clearTimeout(resetTimer);
-    if (!cfg.resetViewS) return;
+    if (!cfg.resetViewS || atHome()) return;
     resetTimer = setTimeout(function () { map.setView(cfg.center, cfg.zoom, { animate: false }); },
       cfg.resetViewS * 1000);
   }
@@ -123,34 +164,29 @@
     if (img && img.complete && img.naturalWidth > 1 && img.src.indexOf(url) >= 0) swap();
   };
 
-  // --------------------------------------------------------------- frames
-  function boundsFor(f) {
-    return L.latLngBounds(f.k === 'm' ? manifest.mbounds : manifest.bounds);
-  }
-
-  function show(i) {
+  // ---------------------------------------------------------------- frames
+  function show(i, keepStrip) {
     if (i < 0 || i >= frames.length) return;
     cur = i;
     var f = frames[i];
     var isCur = function () { return cur === i; };
-    radarSw.set(f.u, f.k === 'o' ? 1 : 0.85, boundsFor(f), isCur);
+    radarSw.set(f.u, f.k === 'o' ? 1 : 0.85, L.latLngBounds(f.k === 'm' ? manifest.mbounds : manifest.bounds), isCur);
     cloudSw.set(f.c || null, 1, L.latLngBounds(manifest.mbounds), isCur);
     updateStamp();
-    updateKnob();
+    if (!keepStrip) placeStrip(ms(f.t));
+    updateBubble(ms(f.t));
   }
 
-  function sourceLabel(f) {
-    return (manifest.sources && manifest.sources[f.s]) || 'Modell';
-  }
+  function sourceLabel(f) { return (manifest.sources && manifest.sources[f.s]) || 'Modell'; }
 
   function updateStamp() {
     var el = $('stamp'), f = frames[cur];
     if (!f) { $('stamp-time').textContent = 'keine Daten'; return; }
     var stale = manifest && manifest.stale;
-    var showDay = f.k === 'm' || !sameDay(f.t, Date.now());
-    $('stamp-time').textContent = showDay ? dayhm(f.t) : hm(f.t);
+    var t = ms(f.t);
+    $('stamp-time').textContent = (f.k === 'm' || !sameDay(t, Date.now())) ? dayhm(t) : hm(t);
     var tag = '';
-    if (stale && manifest.now) tag = 'Stand ' + hm(manifest.now) + ' · keine neuen Radardaten';
+    if (stale && manifest.now) tag = 'Stand ' + hm(ms(manifest.now)) + ' · keine neuen Radardaten';
     else if (f.k === 'f') tag = 'Radar-Vorhersage';
     else if (f.k === 'm') tag = 'Modell ' + sourceLabel(f);
     $('stamp-tag').textContent = tag;
@@ -158,17 +194,14 @@
     el.className = 'stamp' + (f.k !== 'o' ? ' fc' : '') + (stale ? ' stale' : '');
   }
 
-  // ------------------------------------------------------------- playback
-  // Play loops Aktuell .. end of radar nowcast (+2 h); history and model only via scrubbing.
+  // -------------------------------------------------------------- playback
   function loopStart() { return nowIdx >= 0 ? nowIdx : 0; }
   function loopEnd() { return fcEnd >= 0 ? fcEnd : loopStart(); }
-
   function delayFor(i) {
     if (i === loopStart()) return cfg.holdNowMs;
     if (i === loopEnd()) return cfg.holdEndMs;
     return cfg.frameMs;
   }
-
   function tick() {
     clearTimeout(timer);
     if (!playing || !frames.length || document.hidden) return;
@@ -176,7 +209,6 @@
     show(next);
     timer = setTimeout(tick, delayFor(next));
   }
-
   function setPlaying(p) {
     playing = p;
     $('ico-pause').style.display = p ? '' : 'none';
@@ -188,116 +220,142 @@
     }
   }
 
-  // ------------------------------------------------------------- timeline
-  // piecewise time axis: [start..now] 0–20 %, [now..+2 h] 20–45 %, [+2 h..end] 45–100 %
-  var axis = null;
-  function buildAxis() {
-    var t = function (i) { return new Date(frames[i].t).getTime(); };
-    var n = frames.length, t0 = t(0), tn = t(n - 1);
-    var tNow = t(loopStart()), tFc = t(loopEnd());
-    var segs = [[t0, tNow, 0, 0.2], [tNow, tFc, 0.2, 0.45], [tFc, tn, 0.45, 1]];
-    if (tn <= tFc) segs = [[t0, tNow, 0, 0.45], [tNow, tFc, 0.45, 1]];
-    axis = function (ms) {
-      for (var k = 0; k < segs.length; k++) {
-        var s = segs[k];
-        if (ms <= s[1] || k === segs.length - 1) {
-          var span = Math.max(1, s[1] - s[0]);
-          return (s[2] + (Math.min(Math.max(ms, s[0]), s[1]) - s[0]) / span * (s[3] - s[2])) * 100;
-        }
-      }
-      return 100;
-    };
+  // --------------------------------------------- timeline (fixed centre)
+  var tStart = 0, tSplit = 0, tEnd = 0, stripX = 0;
+  function xOf(t) {                       // strip pixel of a time
+    if (t <= tSplit) return (t - tStart) * K_RADAR;
+    return (tSplit - tStart) * K_RADAR + (t - tSplit) * K_MODEL;
   }
-  function pos(i) { return axis ? axis(new Date(frames[i].t).getTime()) : 0; }
+  function tOf(x) {                       // inverse
+    var xs = (tSplit - tStart) * K_RADAR;
+    if (x <= xs) return tStart + x / K_RADAR;
+    return tSplit + (x - xs) / K_MODEL;
+  }
+  function tlWidth() { return $('tl').clientWidth || 300; }
+  function placeStrip(t) {
+    stripX = tlWidth() / 2 - xOf(t);
+    $('strip').style.transform = 'translate3d(' + stripX.toFixed(1) + 'px,0,0)';
+  }
+  function updateBubble(t) {
+    $('bubble-t').textContent = (frames[cur] && (frames[cur].k === 'm' || !sameDay(t, Date.now()))) ? dayhm(t) : hm(t);
+    var away = Math.abs(xOf(t) - xOf(ms(frames[loopStart()].t))) > 45;
+    $('bubble').className = 'bubble' + (cur !== loopStart() ? ' away' : '');
+    $('tl').className = 'tl' + (away ? ' away' : '');
+  }
 
-  function buildTrack() {
-    if (!frames.length) return;
-    buildAxis();
-    var pn = pos(loopStart()), pf = pos(loopEnd());
-    $('seg-past').style.left = '0%'; $('seg-past').style.width = pn + '%';
-    $('seg-fc').style.left = pn + '%'; $('seg-fc').style.width = (pf - pn) + '%';
-    $('seg-model').style.left = pf + '%'; $('seg-model').style.width = (100 - pf) + '%';
-    $('seg-model').style.display = pf < 99.5 ? '' : 'none';
-    $('now').style.left = pn + '%';
-    var ticks = $('ticks');
-    ticks.innerHTML = '';
-    var add = function (p, cls, label) {
-      var d = document.createElement('div');
-      d.className = 'tick ' + cls;
-      d.style.left = p + '%';
-      if (label) d.setAttribute('data-t', label);
-      ticks.appendChild(d);
+  function buildStrip() {
+    var strip = $('strip');
+    if (!frames.length) { strip.innerHTML = ''; return; }
+    tStart = ms(frames[0].t);
+    tEnd = ms(frames[frames.length - 1].t);
+    tSplit = ms(frames[loopEnd()].t);
+    var tNow = ms(frames[loopStart()].t);
+    var html = [];
+    var seg = function (a, b, cls) {
+      html.push('<div class="seg ' + cls + '" style="left:' + xOf(a).toFixed(1) + 'px;width:' +
+        Math.max(0, xOf(b) - xOf(a)).toFixed(1) + 'px"></div>');
     };
-    frames.forEach(function (f, i) {
-      if (i <= loopEnd() && new Date(f.t).getMinutes() === 0) add(pos(i), 'lbl', hm(f.t).slice(0, 2));
-    });
-    // model range: day marks at local midnight, minor marks at noon (independent of frame spacing)
-    var tFc = new Date(frames[loopEnd()].t).getTime(), tEnd = new Date(frames[frames.length - 1].t).getTime();
-    var d = new Date(tFc); d.setHours(12, 0, 0, 0);
-    if (d.getTime() <= tFc) d.setDate(d.getDate() + 1);
-    if (d.getHours() !== 12) d.setHours(12);
-    var mid = new Date(d.getTime()); mid.setHours(0, 0, 0, 0);
-    for (var k = 0; k < 10; k++) {
-      var m0 = new Date(mid.getFullYear(), mid.getMonth(), mid.getDate() + k, 0, 0, 0);
-      var n0 = new Date(mid.getFullYear(), mid.getMonth(), mid.getDate() + k, 12, 0, 0);
-      if (m0.getTime() > tFc && m0.getTime() <= tEnd) add(axis(m0.getTime()), 'lbl day', DAYS[m0.getDay()]);
-      if (n0.getTime() > tFc && n0.getTime() <= tEnd) add(axis(n0.getTime()), 'minor');
+    seg(tStart, tNow, 'past'); seg(tNow, tSplit, 'fc'); if (tEnd > tSplit) seg(tSplit, tEnd, 'model');
+    var tick = function (t, cls, label) {
+      html.push('<div class="tick ' + cls + '" style="left:' + xOf(t).toFixed(1) + 'px"' +
+        (label ? ' data-t="' + label + '"' : '') + '></div>');
+    };
+    // radar range: 15-min ticks, hour labels
+    var q = 15 * 60000, t;
+    for (t = Math.ceil(tStart / q) * q; t <= tSplit; t += q) {
+      var d = new Date(t);
+      if (d.getMinutes() === 0) tick(t, 'lbl', hm(t)); else tick(t, 'minor');
     }
+    // model range: 3-hour ticks, labels at 06/12/18, day at midnight
+    var h3 = 3 * 3600000;
+    for (t = Math.ceil(tSplit / h3) * h3; t <= tEnd; t += 3600000) {
+      var dd = new Date(t), hh = dd.getHours();
+      if (t <= tSplit + 60000 || dd.getMinutes() !== 0) continue;
+      if (hh === 0) tick(t, 'lbl day', DAYS[dd.getDay()] + '. ' + dd.getDate() + '.');
+      else if (hh % 6 === 0) tick(t, 'lbl', hm(t));
+      else if (hh % 3 === 0) tick(t, 'minor');
+    }
+    html.push('<div class="nowmark" style="left:' + xOf(tNow).toFixed(1) + 'px"><span>Aktuell</span></div>');
+    strip.innerHTML = html.join('');
+    strip.style.width = Math.ceil(xOf(tEnd) + 1) + 'px';
   }
 
-  function updateKnob() {
-    if (cur < 0) return;
-    $('knob').style.left = pos(cur) + '%';
-    var f = frames[cur];
-    $('knob-label').textContent = f ? (f.k === 'm' || !sameDay(f.t, Date.now()) ? dayhm(f.t) : hm(f.t)) : '';
+  function nearestFrame(t) {
+    var best = 0, bd = Infinity;
+    for (var i = 0; i < frames.length; i++) {
+      var d = Math.abs(ms(frames[i].t) - t);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
   }
 
-  function showBar() {
+  function showControls() {
     userActive = true;
     $('bar').classList.remove('hidden');
-    $('bar').setAttribute('aria-hidden', 'false');
+    $('zoom').classList.remove('hidden');
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hideBar, cfg.controlsHideS * 1000);
+    hideTimer = setTimeout(hideControls, cfg.controlsHideS * 1000);
+    if (cur >= 0) placeStrip(ms(frames[cur].t));     // width known only when visible
   }
-  function hideBar() {
+  function hideControls() {
     $('bar').classList.add('hidden');
-    $('bar').setAttribute('aria-hidden', 'true');
+    $('zoom').classList.add('hidden');
     userActive = false;
-    // kiosk: when nobody uses it, a running animation keeps playing; otherwise back to "Aktuell"
-    if (!playing) show(loopStart());
+    if (!playing) show(loopStart());     // kiosk: back to "Aktuell"
   }
 
   function initBar() {
-    $('play').addEventListener('click', function (e) {
-      e.stopPropagation(); setPlaying(!playing); showBar();
+    $('play').addEventListener('click', function (e) { e.stopPropagation(); setPlaying(!playing); showControls(); });
+    $('bubble').addEventListener('click', function (e) {
+      e.stopPropagation(); setPlaying(false); show(loopStart()); showControls();
     });
-    var track = $('track'), drag = false;
-    var seek = function (ev) {
-      var r = track.getBoundingClientRect();
-      var x = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1) * 100;
-      var best = 0, bd = 1e9;
-      for (var i = 0; i < frames.length; i++) {
-        var d = Math.abs(pos(i) - x);
-        if (d < bd) { bd = d; best = i; }
+    var tl = $('tl'), drag = null;
+    tl.addEventListener('pointerdown', function (ev) {
+      if (ev.target.closest && ev.target.closest('#bubble')) return;
+      drag = { x0: ev.clientX, s0: stripX, moved: false };
+      tl.setPointerCapture(ev.pointerId);
+      setPlaying(false); showControls();
+    });
+    tl.addEventListener('pointermove', function (ev) {
+      if (!drag) return;
+      var dx = ev.clientX - drag.x0;
+      if (Math.abs(dx) > 3) drag.moved = true;
+      var half = tlWidth() / 2;
+      stripX = Math.min(half, Math.max(half - xOf(tEnd), drag.s0 + dx));
+      $('strip').style.transform = 'translate3d(' + stripX.toFixed(1) + 'px,0,0)';
+      var t = tOf(half - stripX);
+      var i = nearestFrame(t);
+      if (i !== cur) show(i, true);
+      updateBubble(t);
+      showControls();
+    });
+    var end = function (ev) {
+      if (!drag) return;
+      if (!drag.moved) {                       // tap on the strip: jump to that time
+        var r = tl.getBoundingClientRect();
+        var t = tOf(ev.clientX - r.left - stripX);
+        show(nearestFrame(t));
+      } else if (cur >= 0) {
+        placeStrip(ms(frames[cur].t));         // snap to the frame
+        updateBubble(ms(frames[cur].t));
       }
-      if (best !== cur) show(best);
+      drag = null;
     };
-    track.addEventListener('pointerdown', function (ev) {
-      drag = true; track.setPointerCapture(ev.pointerId); setPlaying(false); seek(ev); showBar();
-    });
-    track.addEventListener('pointermove', function (ev) { if (drag) { seek(ev); showBar(); } });
-    var end = function () { drag = false; };
-    track.addEventListener('pointerup', end);
-    track.addEventListener('pointercancel', end);
-    $('bar').addEventListener('click', function (e) { e.stopPropagation(); showBar(); });
+    tl.addEventListener('pointerup', end);
+    tl.addEventListener('pointercancel', end);
+    $('bar').addEventListener('click', function (e) { e.stopPropagation(); showControls(); });
+    $('zoom').addEventListener('click', function (e) { e.stopPropagation(); });
+    window.addEventListener('resize', function () { if (cur >= 0) placeStrip(ms(frames[cur].t)); });
   }
 
-  // ------------------------------------------------------------ manifest
+  // -------------------------------------------------------------- manifest
   function applyManifest(m) {
     manifest = m;
     var old = frames[cur] || null;
     var wasAtNow = cur < 0 || cur === nowIdx;
-    frames = m.frames || [];
+    all = m.frames || [];
+    var limit = Date.now() + cfg.forecastDays * 86400000;
+    frames = all.filter(function (f) { return f.k !== 'm' || (cfg.forecastDays > 0 && ms(f.t) <= limit); });
     nowIdx = -1; fcEnd = -1;
     for (var i = 0; i < frames.length; i++) {
       if (frames[i].k === 'o' && frames[i].t === m.now) nowIdx = i;
@@ -305,14 +363,13 @@
     }
     if (nowIdx < 0) for (var j = frames.length - 1; j >= 0; j--) if (frames[j].k === 'o') { nowIdx = j; break; }
     if (fcEnd < 0) fcEnd = nowIdx;
-    // preload radar + nowcast frames only (model frames load when needed)
     preload = [];
     frames.forEach(function (f) {
       if (f.k === 'm') return;
       var im = new Image(); im.src = f.u; preload.push(im);
       if (f.c) { var ic = new Image(); ic.src = f.c; preload.push(ic); }
     });
-    buildTrack();
+    buildStrip();
     if (playing) return;
     if (wasAtNow || !userActive || !old) { show(loopStart()); return; }
     var idx = -1;
@@ -322,7 +379,7 @@
 
   function poll() {
     getJSON('manifest.json').then(function (m) {
-      var age = (Date.now() - new Date(m.generated).getTime()) / 60000;
+      var age = (Date.now() - ms(m.generated)) / 60000;
       if (age > 10) m.stale = true;
       if (m.generated !== lastGenerated) { lastGenerated = m.generated; applyManifest(m); }
       else if (manifest && manifest.stale !== m.stale) { manifest.stale = m.stale; updateStamp(); }
@@ -335,18 +392,11 @@
     if (!document.hidden && playing) { clearTimeout(timer); timer = setTimeout(tick, 300); }
   });
 
-  // index.html may be an old cached copy (/local is cached for 31 days): add missing elements
-  function patchDom() {
-    if (!$('seg-model') && $('seg-fc')) {
-      var d = document.createElement('div');
-      d.id = 'seg-model'; d.className = 'seg model';
-      $('seg-fc').parentNode.insertBefore(d, $('seg-fc').nextSibling);
-    }
-  }
-
   getJSON('config.json').then(function (c) {
     cfg = c;
-    patchDom();
+    if (cfg.forecastDays === undefined) cfg.forecastDays = 7;
+    applyUrlParams();
+    buildDom();
     initMap();
     initBar();
     setPlaying(false);

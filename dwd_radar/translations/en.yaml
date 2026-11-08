@@ -1,0 +1,57 @@
+configuration:
+  home_name:
+    name: Location – name
+  home_lat:
+    name: Location – latitude
+  home_lon:
+    name: Location – longitude
+  area_radius_km:
+    name: Map area (radius km)
+  pins:
+    name: Additional pins
+  forecast_days:
+    name: Forecast (days, 0–7)
+  reset_view_s:
+    name: Auto-return to start view (s, 0 = off)
+  zoom:
+    name: Start zoom
+  min_zoom:
+    name: Min zoom
+  max_zoom:
+    name: Max zoom
+  show_clouds:
+    name: Show clouds
+  cloud_opacity:
+    name: Cloud opacity
+  radar_opacity:
+    name: Rain opacity
+  show_forecast:
+    name: Radar nowcast (+2 h)
+  past_minutes:
+    name: History (minutes)
+  frame_ms:
+    name: Animation ms per frame
+  hold_now_ms:
+    name: Pause at now (ms)
+  hold_end_ms:
+    name: Pause at end (ms)
+  controls_hide_s:
+    name: Hide controls after (s)
+  stale_minutes:
+    name: Stale hint after (min)
+  resolution_m:
+    name: Rain pixel size (m)
+  smoothing_km:
+    name: Rain smoothing (km)
+  hillshade:
+    name: Show relief
+  hillshade_strength:
+    name: Relief strength
+  basemap:
+    name: Basemap
+  carto_key:
+    name: CARTO API key
+  basemap_filter:
+    name: Basemap CSS filter
+  log_level:
+    name: Log level
