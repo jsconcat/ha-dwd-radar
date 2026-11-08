@@ -33,6 +33,8 @@
     if (num('days') !== null) cfg.forecastDays = Math.max(0, Math.min(7, num('days')));
     if (num('return') !== null) cfg.resetViewS = Math.max(0, Math.min(120, num('return')));
     if (num('zoom') !== null) cfg.zoom = num('zoom');
+    var th = q.get('theme');
+    if (th === 'auto' || th === 'light' || th === 'dark') cfg.theme = th;
     if (num('lat') !== null && num('lon') !== null) {
       cfg.center = [num('lat'), num('lon')];
       cfg.pins.forEach(function (p) { if (p.home) { p.lat = num('lat'); p.lon = num('lon'); } });
@@ -67,13 +69,51 @@
   function pinIcon(p) {
     var home = p.home;
     var w = home ? 24 : 18, h = home ? 32 : 24;
-    var fill = home ? '#173478' : '#4a5a66';
+    var fill = isDark ? (home ? '#3d74d6' : '#7d8b96') : (home ? '#173478' : '#4a5a66');
     var svg = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 40">' +
       '<path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 39 15 39s14-13.7 14-24.1C29 7.2 22.7 1 15 1z" fill="' + fill +
       '" stroke="#fff" stroke-width="2.2"/><circle cx="15" cy="15" r="' + (home ? 5.5 : 4.5) + '" fill="#fff"/></svg>';
     var lbl = (!home && p.name) ? '<span class="lbl">' + p.name.replace(/[<>&]/g, '') + '</span>' : '';
     var halo = home ? '<span class="home-halo"></span>' : '';
     return L.divIcon({ className: 'pin', html: halo + svg + lbl, iconSize: [w, h], iconAnchor: [w / 2, h] });
+  }
+
+  // ----------------------------------------------------------------- theme
+  // auto: follow Home Assistant's resolved dark mode (same origin), else the device setting
+  var isDark = false, baseLayer = null, labelLayer = null, extBase = null, pinMarkers = [];
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function haDark() {
+    try {
+      var ha = window.parent && window.parent !== window && window.parent.document.querySelector('home-assistant');
+      if (ha && ha.hass && ha.hass.themes && typeof ha.hass.themes.darkMode === 'boolean') return ha.hass.themes.darkMode;
+    } catch (e) { /* cross-origin or not embedded */ }
+    return null;
+  }
+  function wantDark() {
+    if (cfg.theme === 'dark') return true;
+    if (cfg.theme === 'light') return false;
+    var h = haDark();
+    return h !== null ? h : !!(mq && mq.matches);
+  }
+  function themedUrl(kind) {
+    var bm = cfg.basemap;
+    if (kind === 'base') return isDark && bm.baseDark ? bm.baseDark : bm.base;
+    return isDark && bm.labelsDark ? bm.labelsDark : bm.labels;
+  }
+  function applyTheme(force) {
+    var d = wantDark();
+    if (d === isDark && !force) return;
+    isDark = d;
+    document.documentElement.classList.toggle('dark', d);
+    if (!map) return;
+    if (baseLayer) baseLayer.setUrl(themedUrl('base'));
+    if (labelLayer && cfg.basemap.own) labelLayer.setUrl(themedUrl('labels'));
+    if (extBase) extBase.getContainer().style.filter = d ? (cfg.basemap.filterDark || '') : (cfg.basemap.filter || '');
+    pinMarkers.forEach(function (e) { e[0].setIcon(pinIcon(e[1])); });
+  }
+  function watchTheme() {
+    if (mq && mq.addEventListener) mq.addEventListener('change', function () { applyTheme(); });
+    setInterval(function () { applyTheme(); }, 5000);     // HA theme changes have no event we can reach
   }
 
   function pane(name, z) {
@@ -110,7 +150,7 @@
       return layer;
     };
     if (bm.url) {
-      var base = L.tileLayer(bm.url, {
+      var base = extBase = L.tileLayer(bm.url, {
         subdomains: bm.subdomains || 'abc', maxZoom: 19, maxNativeZoom: bm.maxNativeZoom, keepBuffer: 1,
         attribution: bm.attribution
       }).addTo(map);
@@ -120,7 +160,7 @@
       map.attributionControl.addAttribution(bm.attribution);
     }
     if (bm.base) {
-      track(L.tileLayer(bm.base, { pane: 'base', maxNativeZoom: bm.maxNativeZoom, minNativeZoom: 5, keepBuffer: 1 })
+      track(baseLayer = L.tileLayer(themedUrl('base'), { pane: 'base', maxNativeZoom: bm.maxNativeZoom, minNativeZoom: 5, keepBuffer: 1 })
         .addTo(map));
     }
     if (cfg.hillshade) {
@@ -130,7 +170,7 @@
       }).addTo(map));
     }
     if (bm.labels) {
-      track(L.tileLayer(bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1,
+      track(labelLayer = L.tileLayer(bm.own ? themedUrl('labels') : bm.labels, { subdomains: bm.subdomains || 'abc', maxZoom: 19, pane: 'labels', keepBuffer: 1,
         maxNativeZoom: bm.own ? bm.maxNativeZoom : 19, minNativeZoom: bm.own ? 5 : 0 })
         .addTo(map));
     }
@@ -140,9 +180,11 @@
     cloudBl = new Blender('clouds', b);
 
     cfg.pins.forEach(function (p) {
-      L.marker([p.lat, p.lon], { icon: pinIcon(p), interactive: false, keyboard: false,
+      var mk = L.marker([p.lat, p.lon], { icon: pinIcon(p), interactive: false, keyboard: false,
         zIndexOffset: p.home ? 1000 : 0 }).addTo(map);
+      pinMarkers.push([mk, p]);
     });
+    applyTheme(true);
 
     // The iframe may get its final size only after Home Assistant has laid out the dashboard.
     // Re-measure on every container size change (and every 15 s as a fallback) and load missing tiles.
@@ -679,9 +721,12 @@
     cfg = c;
     if (cfg.forecastDays === undefined) cfg.forecastDays = 7;
     applyUrlParams();
+    isDark = wantDark();
+    document.documentElement.classList.toggle('dark', isDark);
     buildDom();
     initMap();
     initBar();
+    watchTheme();
     setPlaying(false);
     poll();
     setInterval(poll, 60000);

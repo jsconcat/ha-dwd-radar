@@ -23,6 +23,9 @@ configuration:
   smooth_motion:
     name: "Flüssige Bewegung (Optical Flow)"
     description: "Berechnet Zwischenbilder per Bewegungsschätzung: Radar minütlich, Modelle alle 10 bzw. 30 min."
+  theme:
+    name: "Design"
+    description: "auto = folgt dem Hell/Dunkel-Modus von Home Assistant (bzw. dem Gerät), light = hell, dark = dunkel. Pro Karte überschreibbar mit ?theme="
   reset_view_s:
     name: Automatisch zurück zur Startansicht (Sekunden)
     description: Nach Verschieben/Zoomen nach x Sekunden zurück. 0 = aus.

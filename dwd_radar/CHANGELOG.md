@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+- Dunkelmodus: Option `theme` (auto/light/dark). auto folgt dem Hell/Dunkel-Modus von Home Assistant (im Dashboard-iframe), sonst der Geräteeinstellung; Umschalten ohne Neuladen. Pro Karte überschreibbar mit `?theme=`
+- Eigene dunkle Kartenkacheln (Grenzen, Orte, Gewässer, Autobahnen), dunkle Zeitleiste und Bedienelemente; Relief und Wolken im Dunkelmodus abgeschwächt
+
 ## 0.8.1
 - Fix: Absturz („corrupted size vs. prev_size“) – OpenCV-Optical-Flow wurde gleichzeitig aus Radar- und Modell-Thread benutzt; jetzt serialisiert, OpenCV auf 1 Thread begrenzt
 

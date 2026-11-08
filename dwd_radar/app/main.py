@@ -69,7 +69,7 @@ def load_options() -> dict:
         "hillshade": True, "hillshade_strength": 1.0,
         "basemap": "own", "carto_key": "", "basemap_filter": "",
         "show_clouds": True, "cloud_opacity": 1.0, "forecast_days": 7,
-        "color_style": "classes", "smooth_motion": True,
+        "color_style": "classes", "smooth_motion": True, "theme": "auto",
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -528,7 +528,11 @@ def basemap_cfg(opt: dict) -> dict:
     if b.get("own"):
         b["labels"] += f"?v={VERSION}"
         b["base"] = f"base/{{z}}/{{x}}/{{y}}.png?v={VERSION}"
+        b["labelsDark"] = b["labels"].replace("overlay/", "overlay_dark/")
+        b["baseDark"] = b["base"].replace("base/", "base_dark/")
         b["maxNativeZoom"] = min(12, int(opt["max_zoom"]))
+    else:
+        b["filterDark"] = "invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)"
     if opt.get("basemap_filter"):
         b["filter"] = str(opt["basemap_filter"])
     b["name"] = name
@@ -567,6 +571,7 @@ def install_web(opt: dict, bounds) -> None:
         "frameMs": opt["frame_ms"], "holdNowMs": opt["hold_now_ms"], "holdEndMs": opt["hold_end_ms"],
         "controlsHideS": opt["controls_hide_s"], "resetViewS": opt["reset_view_s"],
         "forecastDays": opt["forecast_days"],
+        "theme": opt.get("theme", "auto"),
         "hillshade": bool(opt["hillshade"]),
         "basemap": basemap_cfg(opt),
     }
@@ -590,16 +595,20 @@ def start_background(opt: dict) -> None:
 
     def run():
         if opt.get("basemap", "own") == "own":
-            try:
-                wide = jobs[0][0]
-                MapOverlay(WWW / "overlay", DATA / "geo_cache", wide, pins_of(opt)).ensure(jobs)
-            except Exception as e:
-                log.error("Karten-Overlay fehlgeschlagen: %s", e)
-            try:
-                ext = (opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"])
-                Landmarks(WWW / "base", DATA / "geo_cache", jobs[0][0], ext).ensure(jobs)
-            except Exception as e:
-                log.error("Gewässer/Autobahn-Kacheln fehlgeschlagen: %s", e)
+            ext = (opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"])
+            variants = [False] if opt.get("theme", "auto") == "light" else [False, True]
+            if opt.get("theme") == "dark":
+                variants = [True, False]
+            for dark in variants:
+                sfx = "_dark" if dark else ""
+                try:
+                    MapOverlay(WWW / f"overlay{sfx}", DATA / "geo_cache", jobs[0][0], pins_of(opt), dark).ensure(jobs)
+                except Exception as e:
+                    log.error("Karten-Overlay%s fehlgeschlagen: %s", " (dunkel)" if dark else "", e)
+                try:
+                    Landmarks(WWW / f"base{sfx}", DATA / "geo_cache", jobs[0][0], ext, dark).ensure(jobs)
+                except Exception as e:
+                    log.error("Gewässer/Autobahn-Kacheln%s fehlgeschlagen: %s", " (dunkel)" if dark else "", e)
         if opt["hillshade"]:
             try:
                 Hillshade(WWW / "hillshade", DATA / "dem_cache", opt["hillshade_strength"]).ensure(jobs)

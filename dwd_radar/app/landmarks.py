@@ -30,6 +30,10 @@ WATER = (170, 200, 228, 255)
 RIVER = (150, 188, 222, 255)
 MW_CASE = (128, 136, 146, 255)
 MW = (255, 255, 255, 255)
+PALETTES = {
+    False: dict(water=WATER, river=RIVER, mw_case=MW_CASE, mw=MW),
+    True: dict(water=(38, 56, 78, 255), river=(46, 72, 100, 255), mw_case=(16, 19, 23, 255), mw=(92, 100, 110, 255)),
+}
 
 
 def river_w(z: int) -> float:
@@ -77,8 +81,9 @@ def _area_ha(ring) -> float:
 
 
 class Landmarks:
-    def __init__(self, out_dir: Path, cache_dir: Path, wide: tuple, extent: tuple):
+    def __init__(self, out_dir: Path, cache_dir: Path, wide: tuple, extent: tuple, dark: bool = False):
         self.out = out_dir
+        self.pal = PALETTES[dark]
         self.cache = cache_dir
         self.wide = wide          # lat0, lat1, lon0, lon1
         self.extent = extent
@@ -189,7 +194,7 @@ class Landmarks:
         return [g for name, g in rivers if name == "NE" or (name and total.get(name, 0) >= need)]
 
     def ensure(self, jobs) -> None:
-        sig = hashlib.sha1(json.dumps([jobs, self.extent, WATER, RIVER, MW, MW_CASE, 4]).encode()).hexdigest()[:12]
+        sig = hashlib.sha1(json.dumps([jobs, self.extent, self.pal, 4]).encode()).hexdigest()[:12]
         marker = self.out / f".done_{sig}"
         if marker.exists():
             log.info("Gewässer/Autobahn-Kacheln vorhanden (%s)", sig)
@@ -197,6 +202,7 @@ class Landmarks:
         data = self.load()
         self.out.mkdir(parents=True, exist_ok=True)
         zs = sorted({z for _, z0, z1 in jobs for z in range(z0, z1 + 1)})
+        P = self.pal
         for z in zs:
             wmin = {8: 10, 9: 7, 10: 4}.get(z, 3)
             water = self._bin(data["water"], z, min_px=wmin * S) if z >= 8 else {}
@@ -209,14 +215,14 @@ class Landmarks:
                 img = Image.new("RGBA", (T, T), (0, 0, 0, 0))
                 d = ImageDraw.Draw(img)
                 for pts in water.get((tx, ty), ()):
-                    d.polygon([(x - ox, y - oy) for x, y in pts], fill=WATER)
+                    d.polygon([(x - ox, y - oy) for x, y in pts], fill=P["water"])
                 for pts in rivers.get((tx, ty), ()):
-                    d.line([(x - ox, y - oy) for x, y in pts], fill=RIVER, width=max(1, round(rw)), joint="curve")
+                    d.line([(x - ox, y - oy) for x, y in pts], fill=P["river"], width=max(1, round(rw)), joint="curve")
                 segs = [[(x - ox, y - oy) for x, y in pts] for pts in mw.get((tx, ty), ())]
                 for sg in segs:
-                    d.line(sg, fill=MW_CASE, width=round(mww + 1.4 * S), joint="curve")
+                    d.line(sg, fill=P["mw_case"], width=round(mww + 1.4 * S), joint="curve")
                 for sg in segs:
-                    d.line(sg, fill=MW, width=max(1, round(mww)), joint="curve")
+                    d.line(sg, fill=P["mw"], width=max(1, round(mww)), joint="curve")
                 p = self.out / str(z) / str(tx) / f"{ty}.png"
                 p.parent.mkdir(parents=True, exist_ok=True)
                 tmp = p.with_suffix(".tmp")

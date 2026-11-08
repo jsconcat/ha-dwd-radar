@@ -38,6 +38,13 @@ COUNTRY = dict(fill=(96, 106, 116, 255), width=round(1.6 * S))
 STATE = dict(fill=(140, 150, 160, 230), width=round(1.0 * S))
 TEXT = (38, 48, 58, 255)
 HALO = (255, 255, 255, 235)
+DOT = (70, 80, 90, 255)
+PALETTES = {
+    False: dict(country=COUNTRY, state=STATE, text=TEXT, halo=HALO, dot=DOT),
+    True: dict(country=dict(fill=(150, 160, 172, 255), width=COUNTRY["width"]),
+               state=dict(fill=(92, 102, 114, 235), width=STATE["width"]),
+               text=(226, 231, 236, 255), halo=(18, 22, 27, 225), dot=(205, 212, 218, 255)),
+}
 
 
 def gx(lon: float, z: int) -> float:
@@ -50,8 +57,10 @@ def gy(lat: float, z: int) -> float:
 
 class MapOverlay:
     def __init__(self, out_dir: Path, cache_dir: Path, box: tuple[float, float, float, float],
-                 pins: list[dict] | None = None):
+                 pins: list[dict] | None = None, dark: bool = False):
         self.out = out_dir
+        self.dark = dark
+        self.pal = PALETTES[dark]
         self.cache = cache_dir
         self.box = box            # lat_min, lat_max, lon_min, lon_max (widest area)
         self.pins = pins or []    # screen area of pins is kept free of labels
@@ -184,7 +193,8 @@ class MapOverlay:
         img = Image.new("RGBA", (T, T), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         m = 8
-        for lines, style in ((state_px, STATE), (country_px, COUNTRY)):
+        P = self.pal
+        for lines, style in ((state_px, P["state"]), (country_px, P["country"])):
             for x0, y0, x1, y1, pts in lines:
                 if x1 < ox - m or x0 > ox + T + m or y1 < oy - m or y0 > oy + T + m:
                     continue
@@ -194,22 +204,22 @@ class MapOverlay:
             if bb[2] < ox or bb[0] > ox + T or bb[3] < oy or bb[1] > oy + T:
                 continue
             cx, cy = px - ox, py - oy
-            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(70, 80, 90, 255), outline=HALO, width=round(1 * S))
-            d.text((lx - ox, ly - oy), text, font=f, anchor=anchor, fill=TEXT,
-                   stroke_width=round(2 * S), stroke_fill=HALO)
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=P["dot"], outline=P["halo"], width=round(1 * S))
+            d.text((lx - ox, ly - oy), text, font=f, anchor=anchor, fill=P["text"],
+                   stroke_width=round(2 * S), stroke_fill=P["halo"])
         return img
 
     def ensure(self, jobs: list[tuple[tuple[float, float, float, float], int, int]]) -> None:
         src = hashlib.sha1((DATA / "borders.json").read_bytes()).hexdigest()[:8]
         geon = (self.cache / "cities1000.zip").exists()
-        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, COUNTRY, STATE, self.pins, 4]).encode()).hexdigest()[:12]
+        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, self.pal, self.pins, 4]).encode()).hexdigest()[:12]
         marker = self.out / f".done_{sig}"
         if marker.exists():
             log.info("Karten-Overlay vorhanden (%s)", sig)
             return
         places = self.places()
         geon = (self.cache / "cities1000.zip").exists()
-        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, COUNTRY, STATE, self.pins, 4]).encode()).hexdigest()[:12]
+        sig = hashlib.sha1(json.dumps([jobs, MIN_POP, src, geon, self.pal, self.pins, 4]).encode()).hexdigest()[:12]
         marker = self.out / f".done_{sig}"
         self.out.mkdir(parents=True, exist_ok=True)
         zs = sorted({z for _, z0, z1 in jobs for z in range(z0, z1 + 1)})

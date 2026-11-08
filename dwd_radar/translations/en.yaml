@@ -17,6 +17,9 @@ configuration:
   smooth_motion:
     name: "Smooth motion (optical flow)"
     description: "Motion-interpolated frames: radar every minute, models every 10/30 min."
+  theme:
+    name: "Theme"
+    description: "auto = follow Home Assistant's light/dark mode (or the device), light, dark. Per card: ?theme="
   reset_view_s:
     name: Auto-return to start view (s, 0 = off)
   zoom:

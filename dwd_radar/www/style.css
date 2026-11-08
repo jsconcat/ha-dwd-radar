@@ -79,3 +79,41 @@ html, body { margin: 0; height: 100%; background: #e3e8dc; overflow: hidden;
 .leaflet-control-attribution { font-size: 9px !important; background: rgba(255,255,255,.55) !important;
   color: #66737c !important; padding: 0 4px !important; }
 .leaflet-control-attribution a { color: #66737c !important; text-decoration: none; }
+
+/* ------------------------------------------------------------------ dark mode */
+html.dark, html.dark body, html.dark #map { background: #1b2026; }
+html.dark .leaflet-hill-pane { opacity: .55; }
+html.dark .leaflet-clouds-pane { opacity: .78; }
+html.dark .stamp { background: rgba(28,33,40,.82); color: #e3e8ec; box-shadow: 0 1px 2px rgba(0,0,0,.5); }
+html.dark .stamp .tag { color: #95a3ae; }
+html.dark .stamp.fc .tag { color: #7cb8e0; }
+html.dark .stamp.stale { background: rgba(92,62,10,.9); color: #ffd9a0; }
+html.dark .stamp.stale .tag { color: #ffd9a0; }
+html.dark .pin .lbl { color: #e6eaee; text-shadow: 0 0 2px #12161b, 0 0 2px #12161b, 0 0 3px #12161b; }
+html.dark .home-halo { background: rgba(61,116,214,.45); }
+html.dark .bar { background: rgba(30,35,42,.94); box-shadow: 0 2px 10px rgba(0,0,0,.55); }
+html.dark .play { background: #2f7fb5; }
+html.dark .block { background: #2a313a; }
+html.dark .block.g-d2 { background: #283039; } html.dark .block.g-eu, html.dark .block.g-eu3 { background: #2b3138; }
+html.dark .block.g-gl, html.dark .block.g-gl3 { background: #2e3338; }
+html.dark .blabel { color: #8796a2; }
+html.dark .seg.past { background: #4a9bd1; }
+html.dark .seg.fc { background: repeating-linear-gradient(90deg, #4a9bd1 0 6px, transparent 6px 10px); }
+html.dark .seg.model { background: repeating-linear-gradient(90deg, #7f9bb0 0 4px, transparent 4px 6px); }
+html.dark .seg.model.g-eu { background: repeating-linear-gradient(90deg, #6d8597 0 3px, transparent 3px 6px); }
+html.dark .seg.model.g-eu3, html.dark .seg.model.g-gl { background: repeating-linear-gradient(90deg, #5f7484 0 2px, transparent 2px 6px); }
+html.dark .seg.model.g-gl3 { background: repeating-linear-gradient(90deg, #536572 0 2px, transparent 2px 8px); }
+html.dark .tick { background: #6f7f8b; }
+html.dark .tick.minor { background: #4c5964; }
+html.dark .tick.lbl::after { color: #9aa8b3; }
+html.dark .tick.day { background: #9aa8b3; }
+html.dark .tick.day::after { color: #e3e8ec; }
+html.dark .nowmark { background: #ff6b5c; }
+html.dark .nowmark span { color: #ff6b5c; }
+html.dark .center, html.dark .bubble { background: #2f7fb5; }
+html.dark .zoombox button { background: rgba(30,35,42,.94); color: #8cc4ea; }
+html.dark .zoombox .zgroup button + button { border-top-color: #3a434d; }
+html.dark .zoombox button.fs svg { stroke: #8cc4ea; }
+html.dark .zoombox .zgroup, html.dark .zoombox button.fs { box-shadow: 0 2px 10px rgba(0,0,0,.55); }
+html.dark .leaflet-control-attribution { background: rgba(20,24,29,.6) !important; color: #8592a0 !important; }
+html.dark .leaflet-control-attribution a { color: #9fb4c6 !important; }
