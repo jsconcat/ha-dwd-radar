@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.1
+- Robust gegen gecachte alte index.html (fehlende Elemente werden ergänzt)
+
 ## 0.5.0
 - Vorhersage bis 7 Tage: Radar-Nowcast bis +2 h, danach ICON-D2, ICON-EU, ICON (global) – jeweils beste verfügbare Quelle
 - Wolken über den gesamten Zeitraum aus denselben Modellen

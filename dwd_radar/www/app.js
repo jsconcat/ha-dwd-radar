@@ -335,8 +335,18 @@
     if (!document.hidden && playing) { clearTimeout(timer); timer = setTimeout(tick, 300); }
   });
 
+  // index.html may be an old cached copy (/local is cached for 31 days): add missing elements
+  function patchDom() {
+    if (!$('seg-model') && $('seg-fc')) {
+      var d = document.createElement('div');
+      d.id = 'seg-model'; d.className = 'seg model';
+      $('seg-fc').parentNode.insertBefore(d, $('seg-fc').nextSibling);
+    }
+  }
+
   getJSON('config.json').then(function (c) {
     cfg = c;
+    patchDom();
     initMap();
     initBar();
     setPlaying(false);
