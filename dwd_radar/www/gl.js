@@ -567,7 +567,7 @@
         var el = document.createElement('div');
         el.className = 'temp';
         el.style.display = 'none';
-        var mk = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([st.lo, st.la]).addTo(map);
+        var mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] }).setLngLat([st.lo, st.la]).addTo(map);
         return { st: st, el: el, mk: mk, fit: false, txt: '', vis: false };
       });
       declutterTemps();
@@ -580,7 +580,7 @@
     var W = $('map').clientWidth, H = $('map').clientHeight;
     TP.els.forEach(function (e) {
       var q = map.project([e.st.lo, e.st.la]);
-      var b = [q.x - 17, q.y - 10, q.x + 17, q.y + 10];
+      var b = [q.x - 17, q.y - 27, q.x + 17, q.y - 5];          // pill sits above the station point
       e.fit = q.x > 8 && q.y > 8 && q.x < W - 8 && q.y < H - 8 && boxes.every(function (o) {
         return b[2] < o[0] - 4 || b[0] > o[2] + 4 || b[3] < o[1] - 4 || b[1] > o[3] + 4;
       });

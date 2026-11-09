@@ -1,5 +1,5 @@
 name: DWD Regenradar
-version: "0.12.1"
+version: "0.12.2"
 slug: dwd_radar
 description: Regenradar aus DWD-Open-Data (RV-Komposit + 2-h-Vorhersage) als Leaflet-Seite unter /local/dwd-radar/
 url: https://github.com/jsconcat/ha-dwd-radar

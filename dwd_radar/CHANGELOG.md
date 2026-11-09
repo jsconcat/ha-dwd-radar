@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.2
+- Temperaturen: deutlich mehr Stationen (bis 300, Mindestabstand ab 4 km); welche sichtbar sind, entscheidet der Platz auf der Karte – beim Hineinzoomen erscheinen mehr
+- Wertekärtchen sitzt über dem Stationspunkt statt darauf (verdeckt Ortspunkte nicht mehr)
+- MOSMIX-Abfrage stündlich statt alle 15 min
+
 ## 0.12.1
 - Temperaturen: bis zu 120 Stationen (dichter, damit auch beim Hineinzoomen genug Werte sichtbar sind)
 

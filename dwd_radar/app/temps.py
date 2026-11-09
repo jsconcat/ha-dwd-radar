@@ -24,7 +24,7 @@ log = logging.getLogger("dwd_radar.temps")
 CATALOG_URL = "https://www.dwd.de/DE/leistungen/met_verfahren_mosmix/mosmix_stationskatalog.cfg?view=nasPublication&nn=16102"
 MOSMIX_URL = "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/single_stations/{id}/kml/MOSMIX_L_LATEST_{id}.kmz"
 POI_URL = "https://opendata.dwd.de/weather/weather_reports/poi/{id}-BEOB.csv"
-MAX_STATIONS = 120
+MAX_STATIONS = 300
 FLOAT = re.compile(r"^-?\d+\.\d+$")
 INT = re.compile(r"^-?\d+$")
 
@@ -84,6 +84,8 @@ class Temps:
         self.obs: dict[str, dict] = {}   # id -> {"lm", "data": {epoch_hour: °C}}
         self.no_poi: dict[str, float] = {}
         self.last_catalog = 0.0
+        self.last_mos = 0.0
+        self.mos_fail: set[str] = set()
         state = self.cache / "temps_state.json"
         if state.exists():
             try:
@@ -112,7 +114,7 @@ class Temps:
         cand = [s for s in allst if lat0 - m <= s["la"] <= lat1 + m and lon0 - m <= s["lo"] <= lon1 + m]
         # WMO stations (5 digits) first – they also report observations; then by distance to home
         cand.sort(key=lambda s: (not s["i"].isdigit(), _dist_km(self.home, (s["la"], s["lo"]))))
-        sel, d = cand, 6.0
+        sel, d = cand, 4.0
         while True:
             sel = []
             for s in cand:
@@ -125,8 +127,8 @@ class Temps:
             s["n"] = pretty_name(s["n"])
         self.stations = sel
         self.last_catalog = time.time()
-        log.info("Temperatur: %d Stationen im Kartenbereich (von %d im Katalog, Abstand ≥ %.0f km)",
-                 len(sel), len(allst), d)
+        log.info("Temperatur: %d Stationen gewählt (%d im Kartenbereich, %d im Katalog, Abstand ≥ %.0f km)",
+                 len(sel), len(cand), len(allst), d)
 
     # ------------------------------------------------------------ downloads
     def _get(self, url: str, lm: str | None):
@@ -212,16 +214,24 @@ class Temps:
         if not self.stations or time.time() - self.last_catalog > 86400:
             self.load_catalog()
         errs = 0
+        # MOSMIX_L is issued 4x a day: check hourly (conditional requests), station reports every cycle
+        do_mos = time.time() - self.last_mos > 3300 or any(s["i"] not in self.mos and s["i"] not in self.mos_fail
+                                                            for s in self.stations)
         for s in self.stations:
-            try:
-                self.fetch_mosmix(s["i"])
-            except Exception as e:
-                errs += 1
-                log.debug("MOSMIX %s: %s", s["i"], e)
+            if do_mos:
+                try:
+                    self.fetch_mosmix(s["i"])
+                    self.mos_fail.discard(s["i"])
+                except Exception as e:
+                    errs += 1
+                    self.mos_fail.add(s["i"])
+                    log.debug("MOSMIX %s: %s", s["i"], e)
             try:
                 self.fetch_poi(s["i"])
             except Exception as e:
                 log.debug("Meldung %s: %s", s["i"], e)
+        if do_mos:
+            self.last_mos = time.time()
         if errs:
             log.warning("Temperatur: %d von %d MOSMIX-Stationen nicht ladbar", errs, len(self.stations))
         self.write()
