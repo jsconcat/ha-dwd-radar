@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.9.1
+- Testseite `/local/dwd-radar/gltest.html`: MapLibre GL JS (WebGL) mit eigenen Kacheln und Bewegungsinterpolation + Farbstufen im Shader (synthetische Testdaten), zeigt WebGL-Fähigkeiten und Bildrate
+
 ## 0.9.0
 - Dunkelmodus: Option `theme` (auto/light/dark). auto folgt dem Hell/Dunkel-Modus von Home Assistant (im Dashboard-iframe), sonst der Geräteeinstellung; Umschalten ohne Neuladen. Pro Karte überschreibbar mit `?theme=`
 - Eigene dunkle Kartenkacheln (Grenzen, Orte, Gewässer, Autobahnen), dunkle Zeitleiste und Bedienelemente; Relief und Wolken im Dunkelmodus abgeschwächt

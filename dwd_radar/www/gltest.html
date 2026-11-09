@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>DWD Regenradar – WebGL-Test</title>
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: #e3e8dc; font-family: Roboto, "Segoe UI", Arial, sans-serif; }
+html.dark, html.dark body { background: #1b2026; }
+#map { position: absolute; inset: 0; }
+#info { position: absolute; left: 8px; top: 8px; z-index: 5; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace;
+  background: rgba(255,255,255,.88); color: #1d2a33; padding: 6px 9px; border-radius: 8px; max-width: 46%;
+  white-space: pre-wrap; pointer-events: none; }
+html.dark #info { background: rgba(26,31,38,.88); color: #dfe6ec; }
+#fps { font-weight: 700; }
+#ctl { position: absolute; left: 10px; right: 10px; bottom: 16px; z-index: 5; height: 56px; display: flex; align-items: center;
+  gap: 12px; padding: 0 14px 0 8px; background: rgba(255,255,255,.93); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+html.dark #ctl { background: rgba(30,35,42,.94); color: #e3e8ec; }
+#play { flex: 0 0 40px; height: 40px; border: 0; border-radius: 50%; background: #1d5f8a; color: #fff; font-size: 18px; }
+#t { flex: 1; height: 40px; }
+#tl { flex: 0 0 70px; text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; }
+.pin svg { display: block; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.45)); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info">WebGL-Test lädt …</div>
+<div id="ctl"><button id="play">▶</button><input id="t" type="range" min="0" max="11" step="0.001" value="0"><span id="tl">+0 min</span></div>
+<script>
+(function () {
+  var v = String(Date.now());
+  function add(tag, attrs) { var e = document.createElement(tag); for (var k in attrs) e[k] = attrs[k]; document.head.appendChild(e); return e; }
+  add('link', { rel: 'stylesheet', href: 'lib/maplibre/maplibre-gl.css?v=' + v });
+  var s = add('script', { src: 'lib/maplibre/maplibre-gl.js?v=' + v });
+  s.onload = function () { add('script', { src: 'gltest.js?v=' + v }); };
+  s.onerror = function () { document.getElementById('info').textContent = 'MapLibre konnte nicht geladen werden'; };
+})();
+</script>
+</body>
+</html>
