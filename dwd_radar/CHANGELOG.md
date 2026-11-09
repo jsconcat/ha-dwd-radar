@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.3
+- Knopf „Zur Startansicht“ (Fadenkreuz) unter den Zoom-Knöpfen: zentriert auf den Standort mit Start-Zoom
+
 ## 0.12.2
 - Temperaturen: deutlich mehr Stationen (bis 300, Mindestabstand ab 4 km); welche sichtbar sind, entscheidet der Platz auf der Karte – beim Hineinzoomen erscheinen mehr
 - Wertekärtchen sitzt über dem Stationspunkt statt darauf (verdeckt Ortspunkte nicht mehr)

@@ -68,7 +68,9 @@
     z.innerHTML = '<button id="zfs" class="fs" aria-label="' + (IN_POPUP ? 'Vollbild schließen' : 'Vollbild') + '">' + fsIcon + '</button>' +
       (cfg.temps === 'toggle' ? '<button id="ztemp" class="fs ttoggle" aria-label="Temperaturen">°C</button>' : '') +
       '<div class="zgroup"><button id="zin" aria-label="Hineinzoomen">+</button>' +
-      '<button id="zout" aria-label="Herauszoomen">&minus;</button></div>';
+      '<button id="zout" aria-label="Herauszoomen">&minus;</button></div>' +
+      '<button id="zhome" class="fs" aria-label="Zur Startansicht"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/>' +
+      '<circle cx="12" cy="12" r="2" class="dot"/><path d="M12 2.5v3.5M12 18v3.5M2.5 12h3.5M18 12h3.5"/></svg></button>';
     document.body.appendChild(z);
   }
 
@@ -223,6 +225,12 @@
     $('zin').addEventListener('click', function (e) { e.stopPropagation(); map.zoomIn(); showControls(); });
     $('zout').addEventListener('click', function (e) { e.stopPropagation(); map.zoomOut(); showControls(); });
     $('zfs').addEventListener('click', function (e) { e.stopPropagation(); toggleFullscreen(); });
+    $('zhome').addEventListener('click', function (e) {
+      e.stopPropagation();
+      clearTimeout(resetTimer);
+      map.easeTo({ center: [cfg.center[1], cfg.center[0]], zoom: Z(cfg.zoom), duration: 450 });
+      showControls();
+    });
     map.on('zoomend', declutterTemps);
     map.on('moveend', declutterTemps);
     map.on('resize', declutterTemps);

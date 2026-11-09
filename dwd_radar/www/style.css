@@ -138,3 +138,5 @@ html.dark .attrib { background: rgba(20,24,29,.6); color: #8592a0; }
 .zoombox button.ttoggle.on { background: #1d5f8a; color: #fff; }
 html.dark .zoombox button.ttoggle { color: #8cc4ea; }
 html.dark .zoombox button.ttoggle.on { background: #2f7fb5; color: #fff; }
+.zoombox button#zhome svg .dot { fill: #1d5f8a; stroke: none; }
+html.dark .zoombox button#zhome svg .dot { fill: #8cc4ea; }
