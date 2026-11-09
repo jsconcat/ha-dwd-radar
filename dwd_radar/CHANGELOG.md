@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0
+- Temperaturen an DWD-Stationen auf der Karte: Vergangenheit/Jetzt aus Stationsmeldungen (POI), danach MOSMIX-Vorhersage (stündlich, zur Zeitleiste interpoliert); Auswahl der Stationen je nach Zoom ohne Überlappung
+- Option `temperatures`: off / on / toggle (Knopf „°C“ auf der Karte, Zustand bleibt auf dem Gerät gespeichert)
+
 ## 0.11.0
 - WebGL-Seite `gl.html` ist jetzt die Radarseite; `index.html` leitet dorthin weiter (alte Dashboard-URLs funktionieren weiter)
 - Leaflet-Seite und die Erzeugung der fertigen Farb-PNGs entfernt – der Server rechnet nur noch Rohdaten und Bewegungsfelder (deutlich weniger CPU)

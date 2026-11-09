@@ -31,6 +31,7 @@ from landmarks import Landmarks
 from models import ModelStore, TargetGrid, SOURCES
 import flow
 import rawdata
+from temps import Temps
 from render import classify_png
 from render import Extent, Renderer, build_lut, LUT_MIN, LUT_MAX, LUT_N, STOPS
 
@@ -74,7 +75,7 @@ def load_options() -> dict:
         "hillshade": True, "hillshade_strength": 1.0,
         "basemap": "own", "carto_key": "", "basemap_filter": "",
         "show_clouds": True, "cloud_opacity": 1.0, "forecast_days": 7,
-        "color_style": "classes", "smooth_motion": True, "theme": "auto",
+        "color_style": "classes", "smooth_motion": True, "theme": "auto", "temperatures": "toggle",
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -830,6 +831,7 @@ def install_web(opt: dict, bounds) -> None:
         "controlsHideS": opt["controls_hide_s"], "resetViewS": opt["reset_view_s"],
         "forecastDays": opt["forecast_days"],
         "theme": opt.get("theme", "auto"),
+        "temps": opt.get("temperatures", "toggle"),
         "hillshade": bool(opt["hillshade"]),
         "cloudOpacity": float(opt.get("cloud_opacity", 1.0)),
         "basemap": basemap_cfg(opt),
@@ -884,6 +886,23 @@ def main() -> None:
     install_web(opt, radar.renderer.bounds)
     log.info("Overlay %dx%d px, Bounds %s", radar.renderer.nx, radar.renderer.ny, radar.renderer.bounds)
     start_background(opt)
+
+    if opt.get("temperatures", "toggle") != "off":
+        def temps_loop():
+            time.sleep(20)
+            t = Temps(requests.Session(), DATA / "temps", WWW / "temps.json",
+                      (opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"]),
+                      (opt["home_lat"], opt["home_lon"]), max(24, int(opt["forecast_days"]) * 24))
+            while True:
+                try:
+                    t.cycle()
+                except Exception as e:
+                    log.error("Temperaturen fehlgeschlagen: %s", e)
+                    log.debug(traceback.format_exc())
+                time.sleep(900)
+        threading.Thread(target=temps_loop, daemon=True, name="temps").start()
+    else:
+        (WWW / "temps.json").unlink(missing_ok=True)
 
     def model_loop():
         time.sleep(5)

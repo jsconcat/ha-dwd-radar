@@ -14,6 +14,9 @@ configuration:
   theme:
     name: "Theme"
     description: "auto = follow Home Assistant's light/dark mode (or the device), light, dark. Per card: ?theme="
+  temperatures:
+    name: "Temperatures"
+    description: "off, on = always shown, toggle = button on the map. Values at DWD stations: reports (past/now) and MOSMIX forecast."
   reset_view_s:
     name: Auto-return to start view (s, 0 = off)
   zoom:

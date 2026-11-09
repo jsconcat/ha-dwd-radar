@@ -20,6 +20,9 @@ configuration:
   theme:
     name: "Design"
     description: "auto = folgt dem Hell/Dunkel-Modus von Home Assistant (bzw. dem Gerät), light = hell, dark = dunkel. Pro Karte überschreibbar mit ?theme="
+  temperatures:
+    name: "Temperaturen"
+    description: "off = aus, on = immer an, toggle = per Knopf auf der Karte ein-/ausblendbar. Werte an DWD-Stationen: Messwerte (vergangen/jetzt) und MOSMIX-Vorhersage."
   reset_view_s:
     name: Automatisch zurück zur Startansicht (Sekunden)
     description: Nach Verschieben/Zoomen nach x Sekunden zurück. 0 = aus.

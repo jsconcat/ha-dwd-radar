@@ -66,6 +66,7 @@
       ? '<svg viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>'
       : '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
     z.innerHTML = '<button id="zfs" class="fs" aria-label="' + (IN_POPUP ? 'Vollbild schließen' : 'Vollbild') + '">' + fsIcon + '</button>' +
+      (cfg.temps === 'toggle' ? '<button id="ztemp" class="fs ttoggle" aria-label="Temperaturen">°C</button>' : '') +
       '<div class="zgroup"><button id="zin" aria-label="Hineinzoomen">+</button>' +
       '<button id="zout" aria-label="Herauszoomen">&minus;</button></div>';
     document.body.appendChild(z);
@@ -183,6 +184,8 @@
       mapReady = true;
       applyTheme(true);
       render(pos);
+      loadTemps();
+      setInterval(loadTemps, 600000);
     });
     map.on('error', function (e) {
       var m = e && e.error && String(e.error.message || e.error);
@@ -220,6 +223,21 @@
     $('zin').addEventListener('click', function (e) { e.stopPropagation(); map.zoomIn(); showControls(); });
     $('zout').addEventListener('click', function (e) { e.stopPropagation(); map.zoomOut(); showControls(); });
     $('zfs').addEventListener('click', function (e) { e.stopPropagation(); toggleFullscreen(); });
+    map.on('zoomend', declutterTemps);
+    map.on('moveend', declutterTemps);
+    map.on('resize', declutterTemps);
+    if ($('ztemp')) {
+      var tb = $('ztemp');
+      tb.classList.toggle('on', TP.on);
+      tb.addEventListener('click', function (e) {
+        e.stopPropagation();
+        TP.on = !TP.on;
+        try { localStorage.setItem('dwdRadarTemps', TP.on ? '1' : '0'); } catch (err) { /* ignore */ }
+        tb.classList.toggle('on', TP.on);
+        updateTemps(frames.length ? timeOfPos(pos) : Date.now());
+        showControls();
+      });
+    }
   }
 
   function atHome() {
@@ -522,6 +540,69 @@
     }
   };
 
+  // ----------------------------------------------------------- temperatures
+  // Station values (reports for the past, MOSMIX forecast after), hourly, interpolated to the timeline position.
+  var TP = { data: null, t0: 0, els: [], on: true };
+  try { TP.on = localStorage.getItem('dwdRadarTemps') !== '0'; } catch (e) { /* storage unavailable */ }
+  function tempsWanted() { return cfg.temps === 'on' || (cfg.temps === 'toggle' && TP.on); }
+  var TSTOPS = [[-15, [176, 124, 255]], [-5, [93, 139, 255]], [0, [63, 182, 242]], [5, [57, 181, 74]], [10, [140, 198, 63]],
+    [15, [232, 194, 26]], [20, [247, 148, 29]], [25, [239, 65, 54]], [30, [193, 39, 45]]];
+  function tColor(c) {
+    if (c <= TSTOPS[0][0]) return 'rgb(' + TSTOPS[0][1] + ')';
+    for (var i = 1; i < TSTOPS.length; i++) {
+      if (c <= TSTOPS[i][0]) {
+        var a = TSTOPS[i - 1], b = TSTOPS[i], w = (c - a[0]) / (b[0] - a[0]);
+        return 'rgb(' + a[1].map(function (x, k) { return Math.round(x + (b[1][k] - x) * w); }).join(',') + ')';
+      }
+    }
+    return 'rgb(' + TSTOPS[TSTOPS.length - 1][1] + ')';
+  }
+  function loadTemps() {
+    if (!cfg.temps || cfg.temps === 'off') return;
+    getJSON('temps.json').then(function (d) {
+      if (TP.data && TP.data.generated === d.generated) return;
+      TP.data = d; TP.t0 = ms(d.t0);
+      TP.els.forEach(function (e) { e.mk.remove(); });
+      TP.els = (d.st || []).slice().sort(function (a, b) { return a.p - b.p; }).map(function (st) {
+        var el = document.createElement('div');
+        el.className = 'temp';
+        el.style.display = 'none';
+        var mk = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([st.lo, st.la]).addTo(map);
+        return { st: st, el: el, mk: mk, fit: false, txt: '', vis: false };
+      });
+      declutterTemps();
+    }).catch(function () { /* not yet available */ });
+  }
+  // greedy placement by priority; pins and already placed values keep their space
+  function declutterTemps() {
+    if (!map || !TP.els.length) return;
+    var boxes = cfg.pins.map(function (p) { var q = map.project([p.lon, p.lat]); return [q.x - 16, q.y - 36, q.x + 16, q.y + 2]; });
+    var W = $('map').clientWidth, H = $('map').clientHeight;
+    TP.els.forEach(function (e) {
+      var q = map.project([e.st.lo, e.st.la]);
+      var b = [q.x - 17, q.y - 10, q.x + 17, q.y + 10];
+      e.fit = q.x > 8 && q.y > 8 && q.x < W - 8 && q.y < H - 8 && boxes.every(function (o) {
+        return b[2] < o[0] - 4 || b[0] > o[2] + 4 || b[3] < o[1] - 4 || b[1] > o[3] + 4;
+      });
+      if (e.fit) boxes.push(b);
+    });
+    updateTemps(frames.length ? timeOfPos(pos) : Date.now());
+  }
+  function updateTemps(t) {
+    if (!TP.data) return;
+    var on = tempsWanted(), f = (t - TP.t0) / 3600000, i = Math.floor(f), w = f - i;
+    TP.els.forEach(function (e) {
+      var v = null, a = e.st.v[i], b = e.st.v[i + 1];
+      if (a != null && b != null) v = a + (b - a) * w; else if (a != null && w < 0.5) v = a; else if (b != null && w >= 0.5) v = b;
+      var vis = on && e.fit && v != null;
+      if (vis) {
+        var txt = Math.round(v / 10) + '°';
+        if (txt !== e.txt) { e.el.textContent = txt; e.el.style.color = tColor(v / 10); e.txt = txt; }
+      }
+      if (vis !== e.vis) { e.el.style.display = vis ? '' : 'none'; e.vis = vis; }
+    });
+  }
+
   // ------------------------------------------------------------- rendering
   function render(p) {
     if (!frames.length) return;
@@ -546,6 +627,7 @@
     if (map) map.triggerRepaint();
     var n = Math.round(pos);
     if (n !== cur) { cur = n; updateStamp(); }
+    updateTemps(t);
   }
 
   // time <-> continuous position

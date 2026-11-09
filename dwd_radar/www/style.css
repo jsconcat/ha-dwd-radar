@@ -129,3 +129,12 @@ html.dark .maplibregl-ctrl-attrib-button { filter: invert(1); }
 .attrib { position: absolute; right: 0; bottom: 0; z-index: 5; font-size: 9px; line-height: 13px; padding: 0 4px;
   background: rgba(255,255,255,.55); color: #66737c; pointer-events: none; white-space: nowrap; }
 html.dark .attrib { background: rgba(20,24,29,.6); color: #8592a0; }
+
+/* temperatures (gl.html) */
+.maplibregl-marker.temp { position: absolute; pointer-events: none; font: 700 14px/1 Roboto, "Segoe UI", Arial, sans-serif;
+  padding: 3px 5px 3px 6px; border-radius: 7px; background: rgba(18,24,30,.72); box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  white-space: nowrap; font-variant-numeric: tabular-nums; }
+.zoombox button.ttoggle { font-size: 15px; font-weight: 700; line-height: 42px; color: #1d5f8a; }
+.zoombox button.ttoggle.on { background: #1d5f8a; color: #fff; }
+html.dark .zoombox button.ttoggle { color: #8cc4ea; }
+html.dark .zoombox button.ttoggle.on { background: #2f7fb5; color: #fff; }
