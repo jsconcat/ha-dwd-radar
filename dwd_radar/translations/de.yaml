@@ -4,70 +4,77 @@ configuration:
     description: Bezeichnung des Heimatorts (nur intern).
   home_lat:
     name: Standort – Breitengrad
-    description: z. B. 49.567. Kartenmitte und Heimat-Pin. Ein neuer Standort erzeugt Karte und Daten einmalig neu (einige Minuten).
+    description: z. B. 49.567 – Kartenmitte und Heimat-Pin. Ein neuer Standort erzeugt Karte und Daten einmalig neu (einige Minuten).
   home_lon:
     name: Standort – Längengrad
     description: z. B. 8.317
   area_radius_km:
     name: Kartenbereich (Radius in km)
-    description: Gebiet um den Standort, für das Regen, Wolken und Karte berechnet werden.
-  pins:
-    name: Weitere Pins
-    description: Zusätzliche Markierungen (Name, lat, lon).
+    description: Gebiet um den Standort, für das Regen, Wolken, Temperaturen, Warnungen und die Karte berechnet werden.
+  zoom:
+    name: Start-Zoom
+    description: Zoomstufe der Startansicht (10 ≈ Rhein-Neckar, 9 ≈ Pfalz und Umgebung).
   forecast_days:
     name: Vorhersage (Tage)
-    description: 0 = keine Modellvorhersage (nur 2 h Radar-Vorhersage), 1–7 = Tage mit DWD-Modellen (ICON-D2 → ICON-EU → ICON). Mehr Tage = mehr Download.
+    description: 0 = nur die 2-h-Radarvorhersage, 1–7 = zusätzlich DWD-Modelle (ICON-D2 → ICON-EU → ICON). Mehr Tage = mehr Download.
   theme:
-    name: "Design"
-    description: "auto = folgt dem Hell/Dunkel-Modus von Home Assistant (bzw. dem Gerät), light = hell, dark = dunkel. Pro Karte überschreibbar mit ?theme="
+    name: Design
+    description: auto = folgt dem Hell/Dunkel-Modus von Home Assistant (bzw. dem Gerät), light = hell, dark = dunkel. Pro Karte mit ?theme= überschreibbar.
   temperatures:
-    name: "Temperaturen"
-    description: "off = aus, on = immer an, toggle = per Knopf auf der Karte ein-/ausblendbar. Werte an DWD-Stationen: Messwerte (vergangen/jetzt) und MOSMIX-Vorhersage."
+    name: Temperaturen
+    description: off = aus, on = immer an, toggle = im Ebenen-Menü auf der Karte schaltbar. Messwerte der DWD-Stationen, danach MOSMIX-Vorhersage.
+  warnings:
+    name: Unwetterwarnungen
+    description: off = aus, on = immer an, toggle = im Ebenen-Menü auf der Karte schaltbar. Amtliche DWD-Warnungen auf Gemeindeebene, Antippen zeigt den Warntext.
+  show_clouds:
+    name: Wolken anzeigen
+    description: Gesamtbedeckung aus den DWD-Modellen.
   reset_view_s:
     name: Automatisch zurück zur Startansicht (Sekunden)
     description: Nach Verschieben/Zoomen nach x Sekunden zurück. 0 = aus.
-  zoom:
-    name: Start-Zoom
-    description: Zoomstufe der Startansicht (9 ≈ Pfalz/Rhein-Neckar).
+  pins:
+    name: Weitere Pins
+    description: Zusätzliche Markierungen (Name, lat, lon).
   min_zoom:
-    name: Minimaler Zoom
+    name: Erweitert – minimaler Zoom
   max_zoom:
-    name: Maximaler Zoom
-  show_clouds:
-    name: Wolken anzeigen
-    description: Gesamtbedeckung aus DWD-Modellen (kein Satellitenbild).
-  cloud_opacity:
-    name: Wolken – Deckkraft
-  radar_opacity:
-    name: Regen – Deckkraft
-  show_forecast:
-    name: Radar-Vorhersage (+2 h)
+    name: Erweitert – maximaler Zoom
   past_minutes:
-    name: Rückblick (Minuten)
-  frame_ms:
-    name: Animation – ms pro Bild
-  hold_now_ms:
-    name: Animation – Pause bei „Aktuell“ (ms)
-  hold_end_ms:
-    name: Animation – Pause am Ende (ms)
-  controls_hide_s:
-    name: Bedienelemente ausblenden nach (Sekunden)
-  stale_minutes:
-    name: Hinweis „veraltet“ ab (Minuten)
+    name: Erweitert – Rückblick (Minuten)
+    description: Wie weit die Radar-Vergangenheit zurückreicht (Standard 120).
+  show_forecast:
+    name: Erweitert – Radar-Vorhersage (+2 h)
+    description: Standard an.
+  radar_opacity:
+    name: Erweitert – Regen-Deckkraft
+  cloud_opacity:
+    name: Erweitert – Wolken-Deckkraft
   resolution_m:
-    name: Regen – Pixelgröße (m)
+    name: Erweitert – Regen-Rasterweite (m)
+    description: Standard 500. Kleiner = feiner, aber mehr Rechenzeit.
   smoothing_km:
-    name: Regen – Glättung (km)
+    name: Erweitert – Regen-Glättung (km)
+    description: Standard 1.0.
+  frame_ms:
+    name: Erweitert – Animation, ms pro 5 Minuten
+  hold_now_ms:
+    name: Erweitert – Animation, Pause bei „Aktuell“ (ms)
+  hold_end_ms:
+    name: Erweitert – Animation, Pause am Ende (ms)
+  controls_hide_s:
+    name: Erweitert – Bedienelemente ausblenden nach (s)
+  stale_minutes:
+    name: Erweitert – Hinweis „veraltet“ ab (min)
   hillshade:
-    name: Relief anzeigen
+    name: Erweitert – Relief anzeigen
   hillshade_strength:
-    name: Relief – Stärke
+    name: Erweitert – Relief-Stärke
   basemap:
-    name: Grundkarte
-    description: own = eigene Karte (Grenzen, Orte, Gewässer, Autobahnen). Alternativen basemap.de, CARTO (Key nötig), OSM.
+    name: Erweitert – Grundkarte
+    description: own = eigene Karte (Standard). Alternativen basemap.de, CARTO (Key nötig), OSM.
   carto_key:
-    name: CARTO API-Key
+    name: Erweitert – CARTO-API-Key
   basemap_filter:
-    name: Grundkarte – CSS-Filter
+    name: Erweitert – CSS-Filter Grundkarte
   log_level:
-    name: Log-Level
+    name: Erweitert – Log-Level

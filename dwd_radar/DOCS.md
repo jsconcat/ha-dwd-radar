@@ -25,7 +25,8 @@ sie als WebGL-Seite bereit: `/local/dwd-radar/gl.html` (iframe-Karte im Dashboar
 | `stale_minutes` | ab diesem Datenalter Hinweis „Stand …“ |
 | `show_clouds` / `cloud_opacity` | Wolken aus ICON-D2/EU/ICON (Modell, kein Satellit) |
 | `forecast_days` | 0 = keine Modellvorhersage, 1–7 Tage (nach den 2 h Radar-Nowcast) |
-| `temperatures` | `off`, `on` (immer sichtbar), `toggle` (Knopf °C auf der Karte, Zustand bleibt gespeichert). Messwerte der DWD-Stationen für Vergangenheit/Jetzt, danach MOSMIX-Vorhersage |
+| `temperatures` | `off`, `on` (immer sichtbar), `toggle` (im Ebenen-Menü schaltbar, Zustand bleibt auf dem Gerät gespeichert). Messwerte der DWD-Stationen für Vergangenheit/Jetzt, danach MOSMIX-Vorhersage |
+| `warnings` | `off`, `on`, `toggle` (Ebenen-Menü). Amtliche DWD-Warnungen auf Gemeindeebene, Antippen zeigt den Warntext |
 | `theme` | `auto` = folgt Home Assistant bzw. dem Gerät, `light`, `dark`. Pro Karte: `?theme=dark` |
 | `basemap` | `own` (Grenzen/Orte/Gewässer/Autobahnen selbst erzeugt), `basemapde`, `carto` (Key), `osm` |
 | `hillshade*` | Relief aus offenen Höhendaten (einmalig erzeugt) |

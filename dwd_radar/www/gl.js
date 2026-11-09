@@ -66,7 +66,9 @@
       ? '<svg viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>'
       : '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
     z.innerHTML = '<button id="zfs" class="fs" aria-label="' + (IN_POPUP ? 'Vollbild schließen' : 'Vollbild') + '">' + fsIcon + '</button>' +
-      (cfg.temps === 'toggle' ? '<button id="ztemp" class="fs ttoggle" aria-label="Temperaturen">°C</button>' : '') +
+      (OVERLAYS.some(function (o) { return cfg[o.key] === 'toggle'; }) ?
+        '<button id="zlayers" class="fs" aria-label="Ebenen"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z"/>' +
+        '<path d="M2.5 12 12 17l9.5-5"/><path d="M2.5 16 12 21l9.5-5"/></svg></button>' : '') +
       '<div class="zgroup"><button id="zin" aria-label="Hineinzoomen">+</button>' +
       '<button id="zout" aria-label="Herauszoomen">&minus;</button></div>' +
       '<button id="zhome" class="fs" aria-label="Zur Startansicht"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/>' +
@@ -188,6 +190,7 @@
       render(pos);
       loadTemps();
       setInterval(loadTemps, 600000);
+      initWarnings();
     });
     map.on('error', function (e) {
       var m = e && e.error && String(e.error.message || e.error);
@@ -238,18 +241,7 @@
     map.on('zoomend', declutterTemps);
     map.on('moveend', declutterTemps);
     map.on('resize', declutterTemps);
-    if ($('ztemp')) {
-      var tb = $('ztemp');
-      tb.classList.toggle('on', TP.on);
-      tb.addEventListener('click', function (e) {
-        e.stopPropagation();
-        TP.on = !TP.on;
-        try { localStorage.setItem('dwdRadarTemps', TP.on ? '1' : '0'); } catch (err) { /* ignore */ }
-        tb.classList.toggle('on', TP.on);
-        updateTemps(frames.length ? timeOfPos(pos) : Date.now());
-        showControls();
-      });
-    }
+    initLayerMenu();
   }
 
   function atHome() {
@@ -552,11 +544,107 @@
     }
   };
 
+  // ---------------------------------------------------------------- overlays
+  // each overlay: off | on | toggle (switchable in the layer menu, state kept on the device)
+  var OVERLAYS = [{ key: 'temps', label: 'Temperaturen' }, { key: 'warnings', label: 'Unwetterwarnungen' }];
+  var OV = { temps: true, warnings: true };
+  try { var ovs = JSON.parse(localStorage.getItem('dwdRadarOverlays') || '{}'); Object.keys(ovs).forEach(function (k) { OV[k] = !!ovs[k]; }); }
+  catch (e) { /* storage unavailable */ }
+  function ovOn(key) { return cfg[key] === 'on' || (cfg[key] === 'toggle' && OV[key]); }
+  function applyOverlays() {
+    var t = frames.length ? timeOfPos(pos) : Date.now();
+    updateTemps(t);
+    updateWarnings(t, true);
+  }
+  function initLayerMenu() {
+    var btn = $('zlayers');
+    if (!btn) return;
+    var m = document.createElement('div');
+    m.id = 'lmenu'; m.className = 'lmenu hidden';
+    OVERLAYS.filter(function (o) { return cfg[o.key] === 'toggle'; }).forEach(function (o) {
+      var row = document.createElement('button');
+      row.className = 'lrow' + (OV[o.key] ? ' on' : '');
+      row.innerHTML = '<span class="sw"><i></i></span><span>' + o.label + '</span>';
+      row.addEventListener('click', function (e) {
+        e.stopPropagation();
+        OV[o.key] = !OV[o.key];
+        row.classList.toggle('on', OV[o.key]);
+        try { localStorage.setItem('dwdRadarOverlays', JSON.stringify(OV)); } catch (err) { /* ignore */ }
+        applyOverlays();
+        showControls();
+      });
+      m.appendChild(row);
+    });
+    document.body.appendChild(m);
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      m.classList.toggle('hidden');
+      btn.classList.toggle('on', !m.classList.contains('hidden'));
+      showControls();
+    });
+    var close = function () { m.classList.add('hidden'); btn.classList.remove('on'); };
+    map.on('click', close);
+    map.on('movestart', function (e) { if (e.originalEvent) close(); });
+    $('bar').addEventListener('pointerdown', close);
+    LMENU_CLOSE = close;
+  }
+  var LMENU_CLOSE = null;
+
+  // ------------------------------------------------------------- warnings
+  var WARN = { data: null, key: '', popup: null };
+  var SEVCOL = ['match', ['get', 'sev'], 1, '#f5d90a', 2, '#f28c18', 3, '#e0302a', 4, '#a43fc4', '#f5d90a'];
+  var SEVNAME = { 1: 'Wetterwarnung', 2: 'Markantes Wetter', 3: 'Unwetter', 4: 'Extremes Unwetter' };
+  function initWarnings() {
+    if (!cfg.warnings || cfg.warnings === 'off') return;
+    map.addSource('warn', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'warn-fill', type: 'fill', source: 'warn', paint: { 'fill-color': SEVCOL, 'fill-opacity': 0.32 } }, 'wx');
+    map.addLayer({ id: 'warn-line', type: 'line', source: 'warn', paint: { 'line-color': SEVCOL, 'line-width': 1.6, 'line-opacity': 0.95 } },
+      map.getLayer('labels') ? 'labels' : undefined);
+    map.on('click', 'warn-fill', function (e) {
+      if (!ovOn('warnings')) return;
+      var seen = {}, items = [];
+      e.features.slice().sort(function (a, b) { return b.properties.sev - a.properties.sev; }).forEach(function (f) {
+        var p = f.properties, k = p.hl + p.on + p.ex;
+        if (seen[k] || items.length >= 3) return;
+        seen[k] = true;
+        var esc = function (x) { return String(x || '').replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+        var ds = String(p.ds || ''); if (ds.length > 320) ds = ds.slice(0, 300).replace(/\s+\S*$/, '') + ' …';
+        items.push('<div class="wi s' + p.sev + '"><b>' + esc(p.hl || p.ev) + '</b><div class="wt">' + SEVNAME[p.sev] + ' · ' +
+          dayhm(+p.on) + ' – ' + dayhm(+p.ex) + '</div><div class="wd">' + esc(ds) + '</div></div>');
+      });
+      if (!items.length) return;
+      if (WARN.popup) WARN.popup.remove();
+      WARN.popup = new maplibregl.Popup({ closeButton: true, maxWidth: '320px', className: 'wpop' })
+        .setLngLat(e.lngLat).setHTML(items.join('')).addTo(map);
+    });
+    loadWarnings();
+    setInterval(loadWarnings, 300000);
+  }
+  function loadWarnings() {
+    getJSON('warnings.json').then(function (d) {
+      WARN.data = d;
+      if (map.getSource('warn')) map.getSource('warn').setData(d);
+      updateWarnings(frames.length ? timeOfPos(pos) : Date.now(), true);
+    }).catch(function () { /* not yet available */ });
+  }
+  function updateWarnings(t, force) {
+    if (!map || !map.getLayer('warn-fill')) return;
+    var on = ovOn('warnings'), key = on + ':' + Math.floor(t / 60000);
+    if (key === WARN.key && !force) return;
+    WARN.key = key;
+    var vis = on ? 'visible' : 'none';
+    map.setLayoutProperty('warn-fill', 'visibility', vis);
+    map.setLayoutProperty('warn-line', 'visibility', vis);
+    if (!on) { if (WARN.popup) WARN.popup.remove(); return; }
+    var flt = ['all', ['<=', ['get', 'on'], t], ['>', ['get', 'ex'], t]];
+    map.setFilter('warn-fill', flt);
+    map.setFilter('warn-line', flt);
+  }
+
   // ----------------------------------------------------------- temperatures
   // Station values (reports for the past, MOSMIX forecast after), hourly, interpolated to the timeline position.
   var TP = { data: null, t0: 0, els: [], on: true };
-  try { TP.on = localStorage.getItem('dwdRadarTemps') !== '0'; } catch (e) { /* storage unavailable */ }
-  function tempsWanted() { return cfg.temps === 'on' || (cfg.temps === 'toggle' && TP.on); }
+  function tempsWanted() { return ovOn('temps'); }
   var TSTOPS = [[-15, [176, 124, 255]], [-5, [93, 139, 255]], [0, [63, 182, 242]], [5, [57, 181, 74]], [10, [140, 198, 63]],
     [15, [232, 194, 26]], [20, [247, 148, 29]], [25, [239, 65, 54]], [30, [193, 39, 45]]];
   function tColor(c) {
@@ -640,6 +728,7 @@
     var n = Math.round(pos);
     if (n !== cur) { cur = n; updateStamp(); }
     updateTemps(t);
+    updateWarnings(t);
   }
 
   // time <-> continuous position
@@ -880,6 +969,8 @@
     if (mode === 'drag' || mode === 'fling' || mode === 'tween') { hideTimer = setTimeout(hideControls, 1000); return; }
     $('bar').classList.add('hidden');
     $('zoom').classList.add('hidden');
+    if (LMENU_CLOSE) LMENU_CLOSE();
+    if (WARN.popup) { WARN.popup.remove(); WARN.popup = null; }
     userActive = false;
     if (!playing) jump(loopStart());       // kiosk: back to "Aktuell"
   }
@@ -1007,7 +1098,7 @@
     setPlaying(false);
     poll();
     setInterval(poll, 60000);
-    if (/[?&]debug=1/.test(location.search)) window.__radar = { jump: jump, frames: function () { return frames; }, tex: TEX };
+    if (/[?&]debug=1/.test(location.search)) window.__radar = { jump: jump, frames: function () { return frames; }, tex: TEX, map: function () { return map; } };
   }).catch(function (e) {
     $('stamp-time').textContent = 'Konfiguration fehlt (' + e.message + ')';
   });

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0
+- DWD-Unwetterwarnungen als Overlay (Gemeindeebene, zusammengefasst und vereinfacht, Farben nach Warnstufe); Antippen zeigt Warntext und Zeitraum; folgt der Zeitleiste (nur zum gewählten Zeitpunkt gültige Warnungen)
+- Ebenen-Menü statt „°C“-Knopf: Temperaturen und Unwetterwarnungen einzeln schaltbar (je nach Option off/on/toggle)
+- Konfiguration aufgeräumt: Grundeinstellungen oben, alles andere als optionale „Erweitert“-Optionen (in HA unter „Nicht verwendete optionale Konfigurationsoptionen anzeigen“)
+- Status-Sensor zählt die Modellbilder wieder
+
 ## 0.12.5
 - Fix: Radar-Vorhersage (+2 h) fehlte seit 0.11.0 – der Nowcast-Lauf wurde noch im entfernten Leaflet-Verzeichnis gesucht
 

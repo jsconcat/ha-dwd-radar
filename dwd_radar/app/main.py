@@ -32,6 +32,7 @@ from models import ModelStore, TargetGrid, SOURCES
 import flow
 import rawdata
 from temps import Temps
+from warnings_dwd import Warnings
 from render import classify_png
 from render import Extent, Renderer, build_lut, LUT_MIN, LUT_MAX, LUT_N, STOPS
 
@@ -68,14 +69,14 @@ def load_options() -> dict:
         "pins": [],
         "area_radius_km": 120,
         "resolution_m": 500, "smoothing_km": 1.0, "radar_opacity": 1.0,
-        "zoom": 9, "min_zoom": 7, "max_zoom": 12,
+        "zoom": 10, "min_zoom": 7, "max_zoom": 12,
         "past_minutes": 120, "show_forecast": True,
         "frame_ms": 450, "hold_now_ms": 1500, "hold_end_ms": 2500,
         "controls_hide_s": 6, "reset_view_s": 90, "stale_minutes": 20,
         "hillshade": True, "hillshade_strength": 1.0,
         "basemap": "own", "carto_key": "", "basemap_filter": "",
         "show_clouds": True, "cloud_opacity": 1.0, "forecast_days": 7,
-        "color_style": "classes", "smooth_motion": True, "theme": "auto", "temperatures": "toggle",
+        "color_style": "classes", "smooth_motion": True, "theme": "auto", "temperatures": "toggle", "warnings": "toggle",
         "log_level": "info",
     }
     d.update({k: v for k, v in o.items() if v is not None})
@@ -836,6 +837,7 @@ def install_web(opt: dict, bounds) -> None:
         "forecastDays": opt["forecast_days"],
         "theme": opt.get("theme", "auto"),
         "temps": opt.get("temperatures", "toggle"),
+        "warnings": opt.get("warnings", "toggle"),
         "hillshade": bool(opt["hillshade"]),
         "cloudOpacity": float(opt.get("cloud_opacity", 1.0)),
         "basemap": basemap_cfg(opt),
@@ -907,6 +909,26 @@ def main() -> None:
         threading.Thread(target=temps_loop, daemon=True, name="temps").start()
     else:
         (WWW / "temps.json").unlink(missing_ok=True)
+
+    if opt.get("warnings", "toggle") != "off":
+        def warn_loop():
+            time.sleep(10)
+            w = Warnings(requests.Session(), WWW / "warnings.json",
+                         (opt["extent_lat_min"], opt["extent_lat_max"], opt["extent_lon_min"], opt["extent_lon_max"]))
+            last = None
+            while True:
+                try:
+                    n = w.cycle()
+                    if n != last:
+                        log.info("Unwetterwarnungen: %d aktive Warnungen im Kartenbereich", n)
+                        last = n
+                except Exception as e:
+                    log.warning("Unwetterwarnungen nicht ladbar: %s", e)
+                    log.debug(traceback.format_exc())
+                time.sleep(300)
+        threading.Thread(target=warn_loop, daemon=True, name="warnings").start()
+    else:
+        (WWW / "warnings.json").unlink(missing_ok=True)
 
     def model_loop():
         time.sleep(5)

@@ -7,57 +7,60 @@ configuration:
     name: Location – longitude
   area_radius_km:
     name: Map area (radius km)
-  pins:
-    name: Additional pins
+  zoom:
+    name: Start zoom
   forecast_days:
     name: Forecast (days, 0–7)
   theme:
-    name: "Theme"
-    description: "auto = follow Home Assistant's light/dark mode (or the device), light, dark. Per card: ?theme="
+    name: Theme
+    description: auto = follow Home Assistant's light/dark mode (or the device), light, dark. Per card ?theme=
   temperatures:
-    name: "Temperatures"
-    description: "off, on = always shown, toggle = button on the map. Values at DWD stations: reports (past/now) and MOSMIX forecast."
-  reset_view_s:
-    name: Auto-return to start view (s, 0 = off)
-  zoom:
-    name: Start zoom
-  min_zoom:
-    name: Min zoom
-  max_zoom:
-    name: Max zoom
+    name: Temperatures
+    description: off, on = always, toggle = switchable in the layer menu on the map.
+  warnings:
+    name: Weather warnings
+    description: off, on = always, toggle = switchable in the layer menu on the map. Official DWD warnings, tap for details.
   show_clouds:
     name: Show clouds
-  cloud_opacity:
-    name: Cloud opacity
-  radar_opacity:
-    name: Rain opacity
-  show_forecast:
-    name: Radar nowcast (+2 h)
+  reset_view_s:
+    name: Auto-return to start view (s, 0 = off)
+  pins:
+    name: Additional pins
+  min_zoom:
+    name: Advanced – min zoom
+  max_zoom:
+    name: Advanced – max zoom
   past_minutes:
-    name: History (minutes)
-  frame_ms:
-    name: Animation ms per frame
-  hold_now_ms:
-    name: Pause at now (ms)
-  hold_end_ms:
-    name: Pause at end (ms)
-  controls_hide_s:
-    name: Hide controls after (s)
-  stale_minutes:
-    name: Stale hint after (min)
+    name: Advanced – history (minutes)
+  show_forecast:
+    name: Advanced – radar nowcast (+2 h)
+  radar_opacity:
+    name: Advanced – rain opacity
+  cloud_opacity:
+    name: Advanced – cloud opacity
   resolution_m:
-    name: Rain pixel size (m)
+    name: Advanced – rain grid (m)
   smoothing_km:
-    name: Rain smoothing (km)
+    name: Advanced – rain smoothing (km)
+  frame_ms:
+    name: Advanced – animation ms per 5 minutes
+  hold_now_ms:
+    name: Advanced – pause at now (ms)
+  hold_end_ms:
+    name: Advanced – pause at end (ms)
+  controls_hide_s:
+    name: Advanced – hide controls after (s)
+  stale_minutes:
+    name: Advanced – stale hint after (min)
   hillshade:
-    name: Show relief
+    name: Advanced – show relief
   hillshade_strength:
-    name: Relief strength
+    name: Advanced – relief strength
   basemap:
-    name: Basemap
+    name: Advanced – basemap
   carto_key:
-    name: CARTO API key
+    name: Advanced – CARTO API key
   basemap_filter:
-    name: Basemap CSS filter
+    name: Advanced – basemap CSS filter
   log_level:
-    name: Log level
+    name: Advanced – log level

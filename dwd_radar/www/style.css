@@ -134,9 +134,43 @@ html.dark .attrib { background: rgba(20,24,29,.6); color: #8592a0; }
 .maplibregl-marker.temp { position: absolute; pointer-events: none; font: 700 14px/1 Roboto, "Segoe UI", Arial, sans-serif;
   padding: 3px 5px 3px 6px; border-radius: 7px; background: rgba(18,24,30,.72); box-shadow: 0 1px 3px rgba(0,0,0,.35);
   white-space: nowrap; font-variant-numeric: tabular-nums; }
-.zoombox button.ttoggle { font-size: 15px; font-weight: 700; line-height: 42px; color: #1d5f8a; }
-.zoombox button.ttoggle.on { background: #1d5f8a; color: #fff; }
-html.dark .zoombox button.ttoggle { color: #8cc4ea; }
-html.dark .zoombox button.ttoggle.on { background: #2f7fb5; color: #fff; }
 .zoombox button#zhome svg .dot { fill: #1d5f8a; stroke: none; }
 html.dark .zoombox button#zhome svg .dot { fill: #8cc4ea; }
+
+/* layer menu (gl.html) */
+#zlayers svg { stroke-linejoin: round; }
+.zoombox button#zlayers.on { background: #1d5f8a; }
+.zoombox button#zlayers.on svg { stroke: #fff; }
+html.dark .zoombox button#zlayers.on { background: #2f7fb5; }
+html.dark .zoombox button#zlayers.on svg { stroke: #fff; }
+.lmenu { position: absolute; top: 10px; right: 62px; z-index: 901; min-width: 190px; padding: 6px; border-radius: 12px;
+  background: rgba(255,255,255,.96); box-shadow: 0 3px 14px rgba(0,0,0,.28); display: flex; flex-direction: column; gap: 2px; }
+.lmenu.hidden { display: none; }
+.lrow { display: flex; align-items: center; gap: 11px; border: 0; background: none; padding: 9px 10px; border-radius: 8px;
+  font: 500 15px Roboto, "Segoe UI", Arial, sans-serif; color: #1d2a33; text-align: left; }
+.lrow:active { background: rgba(29,95,138,.1); }
+.lrow .sw { flex: 0 0 34px; height: 20px; border-radius: 10px; background: #b9c3ca; position: relative; transition: background .15s; }
+.lrow .sw i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
+.lrow.on .sw { background: #1d5f8a; }
+.lrow.on .sw i { left: 16px; }
+html.dark .lmenu { background: rgba(30,35,42,.97); box-shadow: 0 3px 14px rgba(0,0,0,.6); }
+html.dark .lrow { color: #e3e8ec; }
+html.dark .lrow .sw { background: #4a545e; }
+html.dark .lrow.on .sw { background: #2f7fb5; }
+
+/* warning popup */
+.wpop .maplibregl-popup-content { padding: 10px 26px 10px 12px; border-radius: 10px; font: 13px/1.35 Roboto, "Segoe UI", Arial, sans-serif;
+  color: #1d2a33; box-shadow: 0 3px 14px rgba(0,0,0,.3); }
+.wpop .maplibregl-popup-close-button { font-size: 20px; width: 26px; height: 26px; color: #66737c; }
+.wpop .wi { border-left: 5px solid #f5d90a; padding-left: 8px; }
+.wpop .wi + .wi { margin-top: 9px; }
+.wpop .wi.s2 { border-color: #f28c18; } .wpop .wi.s3 { border-color: #e0302a; } .wpop .wi.s4 { border-color: #a43fc4; }
+.wpop .wt { color: #5b6872; font-size: 12px; margin: 2px 0 3px; }
+.wpop .wd { font-size: 12.5px; }
+html.dark .wpop .maplibregl-popup-content { background: #232a32; color: #e3e8ec; }
+html.dark .wpop .wt { color: #9aa8b3; }
+html.dark .wpop.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: #232a32; }
+html.dark .wpop.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: #232a32; }
+html.dark .wpop.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: #232a32; }
+html.dark .wpop.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: #232a32; }
