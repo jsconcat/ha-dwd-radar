@@ -60,3 +60,13 @@ def _interp(a, b, taus, h, w):
         wb = cv2.remap(b, bx, by, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         out.append((1 - t) * wa + t * wb)
     return out
+
+
+def field(a: np.ndarray, b: np.ndarray, down: int = 8) -> np.ndarray:
+    """Motion field A -> B in pixels of the input grid, downsampled by `down` (shape h/down x w/down x 2)."""
+    h, w = a.shape
+    with _lock:
+        f = _engine().calc(_to_u8(a), _to_u8(b), None)
+        f = cv2.GaussianBlur(f, (0, 0), 3)
+        fh, fw = (h + down - 1) // down, (w + down - 1) // down
+        return cv2.resize(f, (fw, fh), interpolation=cv2.INTER_AREA)

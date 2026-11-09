@@ -30,6 +30,7 @@ from mapoverlay import MapOverlay
 from landmarks import Landmarks
 from models import ModelStore, TargetGrid, SOURCES
 import flow
+import rawdata
 from render import classify_png
 from render import Extent, Renderer, build_lut, LUT_MIN, LUT_MAX, LUT_N, STOPS
 
@@ -99,7 +100,9 @@ class Radar:
         self.model_dir = WWW / "frames" / "model"
         self.cloud_dir = WWW / "frames" / "clouds"
         self.lut = build_lut(opt["radar_opacity"])
+        self.raw = WWW / "frames" / "raw"
         self.model_frames = self.model_frames_from_disk()
+        self.model_frames2, self.model_clouds2 = self.model_frames2_from_disk()
         self.obs_dir = WWW / "frames" / "obs"
         self.fc_dir = WWW / "frames" / "fc"
         self.state_file = DATA / "state.json"
@@ -112,7 +115,7 @@ class Radar:
         self.latency_s: float | None = None
         # a geometry change (extent/resolution) invalidates rendered frames
         geo = json.dumps([self.renderer.bounds, opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"],
-                          opt.get("color_style", "classes"), bool(opt.get("smooth_motion", True)), "r3"])
+                          opt.get("color_style", "classes"), bool(opt.get("smooth_motion", True)), "r4"])
         if st.get("geometry") != geo:
             log.info("Ausschnitt/Darstellung geändert – vorhandene Bilder werden neu erzeugt")
             shutil.rmtree(WWW / "frames", ignore_errors=True)
@@ -160,6 +163,27 @@ class Radar:
                 path = self.fc_path(run, fr.lead)
             atomic_write(path, self.renderer.png_from_target(r))
             n += 1
+        # raw layer (WebGL page): encoded fields + motion fields
+        rdir = self.raw / "fc" / f"{run:%Y%m%d%H%M}"
+        for fr in frames:
+            if fr.lead == 0:
+                rp = self.raw / "obs" / f"r_{fr.valid:%Y%m%d%H%M}.png"
+                if not rp.exists():
+                    atomic_write(rp, rawdata.rain_png(rates[0]))
+            else:
+                atomic_write(rdir / f"r_{fr.lead:03d}.png", rawdata.rain_png(rates[fr.lead]))
+        nfl = 0
+        if with_forecast:
+            ls = sorted(rates)
+            fls = {}
+            for a, b in zip(ls, ls[1:]):
+                png, sc = rawdata.flow_png(rates[a], rates[b])
+                atomic_write(rdir / f"fl_{a:03d}.png", png)
+                fls[f"{a:03d}"] = sc
+                nfl += 1
+            atomic_write(rdir / "flows.json", json.dumps(fls).encode())
+        if 0 in rates:
+            nfl += self.obs_flows(run)
         ni = 0
         if self.o.get("smooth_motion", True):
             if with_forecast:
@@ -177,8 +201,9 @@ class Radar:
                         ni += 1
             if 0 in rates:
                 ni += self.obs_intermediates(run)
-        log.info("Lauf %s: %d MB, %d Bilder + %d Zwischenbilder in %.1f s", run.strftime("%H:%M"),
-                 len(blob) // 1_000_000, n, ni, time.time() - t0)
+        self.prune_obs_cache()
+        log.info("Lauf %s: %d MB, %d Bilder, %d Bewegungsfelder%s in %.1f s", run.strftime("%H:%M"),
+                 len(blob) // 1_000_000, n, nfl, f", {ni} Zwischenbilder" if ni else "", time.time() - t0)
         if with_forecast:
             leads_found = sorted(f.lead for f in frames)
             if leads_found and leads_found[-1] < 120:
@@ -198,9 +223,35 @@ class Radar:
             for p, m in zip(targets, mids):
                 atomic_write(p, self.renderer.png_from_target(m))
                 n += 1
+        return n
+
+    def prune_obs_cache(self) -> None:
         cut = datetime.now(timezone.utc) - timedelta(minutes=self.o["past_minutes"] + 15)
         for k in [k for k in self.obs_cache if k < cut]:
             del self.obs_cache[k]
+
+    @staticmethod
+    def _read_json(p: Path) -> dict:
+        try:
+            return json.loads(p.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def obs_flows(self, t: datetime) -> int:
+        """Motion fields between analysis frame t and its 5-minute neighbours (raw layer)."""
+        ro = self.raw / "obs"
+        fls = self._read_json(ro / "flows.json")
+        n = 0
+        for a, b in ((t - timedelta(minutes=5), t), (t, t + timedelta(minutes=5))):
+            key = f"{a:%Y%m%d%H%M}"
+            if a not in self.obs_cache or b not in self.obs_cache or key in fls:
+                continue
+            png, sc = rawdata.flow_png(self.obs_cache[a], self.obs_cache[b])
+            atomic_write(ro / f"fl_{key}.png", png)
+            fls[key] = sc
+            n += 1
+        if n:
+            atomic_write(ro / "flows.json", json.dumps(fls).encode())
         return n
 
     def cycle(self) -> None:
@@ -214,7 +265,8 @@ class Radar:
             self.last_run = newest
             self.save_state()
         # backfill missing analysis frames (past window), newest first, a few per cycle
-        have = self.existing_obs()
+        have = {t for t in self.existing_obs()
+                if (self.raw / "obs" / f"r_{t:%Y%m%d%H%M}.png").exists()}
         window_start = now - timedelta(minutes=self.o["past_minutes"])
         avail = {t for t, _ in runs}
         missing = [t for t in sorted(avail, reverse=True)
@@ -326,6 +378,47 @@ class Radar:
             log.info("Modell-Zeitleiste aus vorhandenen Bildern: %d Bilder bis %s", len(frames), frames[-1]["t"])
         return frames
 
+    def model_frames2_from_disk(self) -> tuple[list[dict], list[dict]]:
+        """Raw model frames already on disk (restart until the first model cycle is done)."""
+        now = datetime.now(timezone.utc)
+        root = self.raw / "model"
+        order = {"d2": 0, "eu": 1, "gl": 2}
+        best: dict[datetime, dict] = {}
+        flows: dict[str, dict] = {}
+        if not root.exists():
+            return [], []
+        for d in root.iterdir():
+            try:
+                src, run_s = d.name.split("_")
+                run = datetime.strptime(run_s, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            flows[d.name] = self._read_json(d / "flows.json")
+            for p in d.glob("r_*.png"):
+                t = datetime.strptime(p.stem[2:], "%Y%m%d%H").replace(tzinfo=timezone.utc)
+                if t <= now:
+                    continue
+                old = best.get(t)
+                if old is None or (order.get(src, 9), -run.timestamp()) < (order.get(old["s"], 9), -old["_r"].timestamp()):
+                    best[t] = {"t": iso(t), "k": "m", "g": "m", "u": f"frames/raw/model/{d.name}/{p.name}", "s": src,
+                               "_r": run, "_d": d.name, "_t": t}
+        frames = [best[t] for t in sorted(best)]
+        clouds = []
+        for i, f in enumerate(frames):
+            same = [j for j in (i - 1, i + 1) if 0 <= j < len(frames) and frames[j]["s"] == f["s"]]
+            f["d"] = int(round(min(abs((frames[j]["_t"] - f["_t"]).total_seconds()) for j in same) / 3600)) if same else 1
+            key = f"{f['_t']:%Y%m%d%H}"
+            if i + 1 < len(frames) and frames[i + 1]["_d"] == f["_d"] and key in flows[f["_d"]] \
+                    and (root / f["_d"] / f"fl_{key}.png").exists():
+                f["fl"] = f"frames/raw/model/{f['_d']}/fl_{key}.png"
+                f["fs"] = flows[f["_d"]][key]
+            if (root / f["_d"] / f"c_{key}.png").exists():
+                clouds.append({"t": f["t"], "u": f"frames/raw/model/{f['_d']}/c_{key}.png"})
+        for f in frames:
+            for k in ("_r", "_d", "_t"):
+                f.pop(k, None)
+        return frames, clouds
+
     def model_cycle(self) -> None:
         """Runs in its own thread: refresh ICON sources and render model frames."""
         now = datetime.now(timezone.utc)
@@ -333,9 +426,42 @@ class Radar:
         nowcast_end = (self.last_run or dwd.floor5(now)) + timedelta(minutes=120)
         plan = self.models.update(past_start, nowcast_end, int(self.o["forecast_days"]) * 24)
         frames, keep = [], set()
+        frames2, clouds2, flows_by_dir = [], [], {}
         n_new = 0
         prev, prev_rate = None, None
         for p in plan:
+            dname = f"{p['src']}_{p['run']:%Y%m%d%H}"
+            rd = self.raw / "model" / dname
+            if dname not in flows_by_dir:
+                flows_by_dir[dname] = [self._read_json(rd / "flows.json"), False]
+            fls = flows_by_dir[dname][0]
+            tk = f"{p['t']:%Y%m%d%H}"
+            rp, rc = rd / f"r_{tk}.png", rd / f"c_{tk}.png"
+            rate_raw = None
+            if not rp.exists():
+                rate_raw = self.model_rate(p)
+                atomic_write(rp, rawdata.rain_png(rate_raw))
+                n_new += 1
+            f2 = {"t": iso(p["t"]), "k": "m", "g": "m", "u": f"frames/raw/model/{dname}/{rp.name}", "s": p["src"],
+                  "d": p["dt"]}
+            if prev is not None and prev["src"] == p["src"] and prev["run"] == p["run"] and frames2:
+                pk = f"{prev['t']:%Y%m%d%H}"
+                if pk not in fls or not (rd / f"fl_{pk}.png").exists():
+                    ra = self.model_rate(prev)
+                    rb = rate_raw if rate_raw is not None else self.model_rate(p)
+                    png, sc = rawdata.flow_png(ra, rb)
+                    atomic_write(rd / f"fl_{pk}.png", png)
+                    fls[pk] = sc
+                    flows_by_dir[dname][1] = True
+                frames2[-1]["fl"] = f"frames/raw/model/{dname}/fl_{pk}.png"
+                frames2[-1]["fs"] = fls[pk]
+            frames2.append(f2)
+            if self.o.get("show_clouds"):
+                cc = self.models.cloud(p)
+                if cc is not None:
+                    if not rc.exists():
+                        atomic_write(rc, rawdata.cloud_png(cc))
+                    clouds2.append({"t": iso(p["t"]), "u": f"frames/raw/model/{dname}/{rc.name}"})
             d = self.model_dir / f"{p['src']}_{p['run']:%Y%m%d%H}"
             pp, pc = d / f"p_{p['t']:%Y%m%d%H}.png", d / f"c_{p['t']:%Y%m%d%H}.png"
             rate = None
@@ -372,13 +498,21 @@ class Radar:
             frames.append(f)
             keep.add(d.name)
             prev, prev_rate = p, rate
+        for dname, (fls, changed) in flows_by_dir.items():
+            if changed:
+                atomic_write(self.raw / "model" / dname / "flows.json", json.dumps(fls).encode())
         self.model_frames = frames
+        self.model_frames2, self.model_clouds2 = frames2, clouds2
         if n_new:
             log.info("Modellbilder: %d neu, %d gesamt bis %s (Download 24 h: %.0f MB)", n_new, len(frames),
                      frames[-1]["t"] if frames else "-", self.models.download_mb_24h())
         cutoff = time.time() - 900
         if self.model_dir.exists():
             for d in self.model_dir.iterdir():
+                if d.is_dir() and d.name not in keep and d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+        if (self.raw / "model").exists():
+            for d in (self.raw / "model").iterdir():
                 if d.is_dir() and d.name not in keep and d.stat().st_mtime < cutoff:
                     shutil.rmtree(d, ignore_errors=True)
 
@@ -405,6 +539,112 @@ class Radar:
             for p in self.cloud_dir.glob("c_*.png"):
                 if p.name not in keep and p.stat().st_mtime < cutoff:
                     p.unlink(missing_ok=True)
+
+    # ------------------------------------------------------- raw layer manifest
+    @staticmethod
+    def _tparse(stem: str, fmt: str) -> datetime | None:
+        try:
+            return datetime.strptime(stem, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+    def raw_clouds(self, frames: list[dict]) -> list[dict]:
+        if not self.o.get("show_clouds") or not frames:
+            return []
+        cdir = self.raw / "clouds"
+        rd = self.models.runs.get("d2")
+        tag = rd.run.strftime("%Y%m%d%H") if rd else "x"
+        rts = [datetime.strptime(f["t"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+               for f in frames if f["k"] != "m"]
+        out, keep = [], set()
+        if rts:
+            h = min(rts).replace(minute=0, second=0, microsecond=0)
+            h1 = max(rts)
+            while h <= h1 + timedelta(hours=1):
+                p = cdir / f"c_{h:%Y%m%d%H}_{tag}.png"
+                if not p.exists():
+                    cc = self.models.cloud_at(h)
+                    if cc is not None:
+                        atomic_write(p, rawdata.cloud_png(cc))
+                if p.exists():
+                    keep.add(p.name)
+                    out.append({"t": iso(h), "u": f"frames/raw/clouds/{p.name}"})
+                h += timedelta(hours=1)
+        last = out[-1]["t"] if out else ""
+        out += [c for c in self.model_clouds2 if c["t"] > last]
+        cutoff = time.time() - 900
+        if cdir.exists():
+            for p in cdir.glob("c_*.png"):
+                if p.name not in keep and p.stat().st_mtime < cutoff:
+                    p.unlink(missing_ok=True)
+        return out
+
+    def write_manifest2(self, now, keep_from, newest_obs, fc_run, stale) -> None:
+        ro = self.raw / "obs"
+        obs = {}
+        for p in ro.glob("r_*.png") if ro.exists() else []:
+            t = self._tparse(p.stem[2:], "%Y%m%d%H%M")
+            if t is None:
+                continue
+            if t < keep_from:
+                p.unlink(missing_ok=True)
+            else:
+                obs[t] = p
+        for p in ro.glob("fl_*.png") if ro.exists() else []:
+            t = self._tparse(p.stem[3:], "%Y%m%d%H%M")
+            if t is not None and t < keep_from:
+                p.unlink(missing_ok=True)
+        fls = self._read_json(ro / "flows.json")
+        pruned = {k: v for k, v in fls.items() if (self._tparse(k, "%Y%m%d%H%M") or now) >= keep_from}
+        if len(pruned) != len(fls):
+            atomic_write(ro / "flows.json", json.dumps(pruned).encode())
+        frames = []
+        ts = sorted(obs)
+        for i, t in enumerate(ts):
+            f = {"t": iso(t), "k": "o", "g": "r", "u": f"frames/raw/obs/{obs[t].name}"}
+            key = f"{t:%Y%m%d%H%M}"
+            if i + 1 < len(ts) and ts[i + 1] - t == timedelta(minutes=5) and key in pruned \
+                    and (ro / f"fl_{key}.png").exists():
+                f["fl"] = f"frames/raw/obs/fl_{key}.png"
+                f["fs"] = pruned[key]
+            frames.append(f)
+        fc_root = self.raw / "fc"
+        runs = sorted(p for p in fc_root.iterdir() if p.is_dir()) if fc_root.exists() else []
+        for p in runs[:-2]:
+            shutil.rmtree(p, ignore_errors=True)
+        if fc_run:
+            d = fc_root / f"{fc_run:%Y%m%d%H%M}"
+            if d.is_dir():
+                ffl = self._read_json(d / "flows.json")
+                leads = sorted(int(p.stem[2:]) for p in d.glob("r_*.png"))
+                if frames and frames[-1]["t"] == iso(fc_run) and leads and leads[0] == 5 and "000" in ffl:
+                    frames[-1]["fl"] = f"frames/raw/fc/{d.name}/fl_000.png"
+                    frames[-1]["fs"] = ffl["000"]
+                for j, L in enumerate(leads):
+                    f = {"t": iso(fc_run + timedelta(minutes=L)), "k": "f", "g": "r",
+                         "u": f"frames/raw/fc/{d.name}/r_{L:03d}.png"}
+                    key = f"{L:03d}"
+                    if j + 1 < len(leads) and leads[j + 1] - L == 5 and key in ffl:
+                        f["fl"] = f"frames/raw/fc/{d.name}/fl_{key}.png"
+                        f["fs"] = ffl[key]
+                    frames.append(f)
+        last_t = frames[-1]["t"] if frames else ""
+        frames += [f for f in self.model_frames2 if f["t"] > last_t]
+        clouds = self.raw_clouds(frames)
+        r, tg = self.renderer, self.tg
+        m2 = {
+            "generated": iso(now),
+            "grids": {"r": {"b": r.bounds, "w": r.nx, "h": r.ny}, "m": {"b": tg.bounds, "w": tg.nx, "h": tg.ny}},
+            "sources": {s.key: s.label for s in SOURCES},
+            "model_error": self.models.error,
+            "now": iso(newest_obs) if newest_obs else None,
+            "run": iso(fc_run) if fc_run else None,
+            "stale": stale,
+            "error": self.last_error,
+            "frames": frames,
+            "clouds": clouds,
+        }
+        atomic_write(WWW / "manifest2.json", json.dumps(m2, separators=(",", ":")).encode())
 
     # --------------------------------------------------------------- manifest
     def cleanup_and_manifest(self) -> None:
@@ -474,6 +714,11 @@ class Radar:
             "frames": frames,
         }
         atomic_write(WWW / "manifest.json", json.dumps(manifest, separators=(",", ":")).encode())
+        try:
+            self.write_manifest2(now, keep_from, newest_obs, fc_run, stale)
+        except Exception as e:
+            log.error("manifest2 fehlgeschlagen: %s", e)
+            log.debug(traceback.format_exc())
         state = "error" if self.last_error and stale else ("stale" if stale else "ok")
         if stale and not self.last_error and newest_obs:
             self.ha.log("warning", f"Keine neuen DWD-Radardaten seit {newest_obs:%H:%M} UTC – zeige letzten Stand")
@@ -573,6 +818,7 @@ def install_web(opt: dict, bounds) -> None:
         "forecastDays": opt["forecast_days"],
         "theme": opt.get("theme", "auto"),
         "hillshade": bool(opt["hillshade"]),
+        "cloudOpacity": float(opt.get("cloud_opacity", 1.0)),
         "basemap": basemap_cfg(opt),
     }
     atomic_write(WWW / "config.json", json.dumps(cfg, indent=1).encode())

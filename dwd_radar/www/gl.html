@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>DWD Regenradar</title>
+</head>
+<body>
+<div id="map"></div>
+<div id="stamp" class="stamp"><span id="stamp-time">–</span><span id="stamp-tag"></span></div>
+<div id="bar" class="bar hidden" aria-hidden="true"></div>
+<script>
+/* gl.html may be cached by the browser (/local: 31 days) – load app files with the current version */
+(function () {
+  var v = String(Date.now());
+  var add = function (tag, attrs, parent) { var e = document.createElement(tag); for (var k in attrs) e[k] = attrs[k]; (parent || document.head).appendChild(e); return e; };
+  var go = function (ver) {
+    add('link', { rel: 'stylesheet', href: 'lib/maplibre/maplibre-gl.css?v=' + ver });
+    add('link', { rel: 'stylesheet', href: 'style.css?v=' + ver });
+    var s = add('script', { src: 'lib/maplibre/maplibre-gl.js?v=' + ver }, document.body);
+    s.onload = function () { add('script', { src: 'gl.js?v=' + ver }, document.body); };
+    s.onerror = function () { document.getElementById('stamp-time').textContent = 'MapLibre fehlt'; };
+  };
+  fetch('config.json?_=' + v, { cache: 'no-store' }).then(function (r) { return r.json(); })
+    .then(function (c) { go(c.version || v); }).catch(function () { go(v); });
+})();
+</script>
+</body>
+</html>

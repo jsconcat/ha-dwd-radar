@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+- Neue WebGL-Seite `/local/dwd-radar/gl.html` (MapLibre GL JS): Bewegungsinterpolation und Farbstufen im Shader, stufenlos für jede Zeitposition; alle Daten als GPU-Texturen (keine Aussetzer bei Wolken)
+- Server liefert zusätzlich Rohdaten: Regen 16 bit (R/G), Wolken 8 bit, Bewegungsfelder (OpenCV DIS) je Bildpaar für Radar, Nowcast und Modelle; `manifest2.json`
+- Funktionsumfang wie die Leaflet-Seite: Zeitleiste, Play, Zoom, Vollbild-Popup, Pins, Hell/Dunkel, Auto-Rückkehr, URL-Parameter
+- Wolken im Dunkelmodus dunkelgrau statt hellem Schleier
+- Leaflet-Seite (`index.html`) bleibt vorerst unverändert
+
 ## 0.9.1
 - Testseite `/local/dwd-radar/gltest.html`: MapLibre GL JS (WebGL) mit eigenen Kacheln und Bewegungsinterpolation + Farbstufen im Shader (synthetische Testdaten), zeigt WebGL-Fähigkeiten und Bildrate
 

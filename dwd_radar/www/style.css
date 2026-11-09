@@ -117,3 +117,12 @@ html.dark .zoombox button.fs svg { stroke: #8cc4ea; }
 html.dark .zoombox .zgroup, html.dark .zoombox button.fs { box-shadow: 0 2px 10px rgba(0,0,0,.55); }
 html.dark .leaflet-control-attribution { background: rgba(20,24,29,.6) !important; color: #8592a0 !important; }
 html.dark .leaflet-control-attribution a { color: #9fb4c6 !important; }
+
+/* ------------------------------------------------------------------ MapLibre (gl.html) */
+.maplibregl-ctrl-attrib { font-size: 9px; }
+.maplibregl-ctrl-bottom-right { z-index: 5; }
+.maplibregl-ctrl-attrib.maplibregl-compact { background: rgba(255,255,255,.55); }
+html.dark .maplibregl-ctrl-attrib, html.dark .maplibregl-ctrl-attrib.maplibregl-compact { background: rgba(20,24,29,.65); color: #8592a0; }
+html.dark .maplibregl-ctrl-attrib a { color: #9fb4c6; }
+html.dark .maplibregl-ctrl-attrib-button { filter: invert(1); }
+.maplibregl-marker.pin { position: absolute; pointer-events: none; }
