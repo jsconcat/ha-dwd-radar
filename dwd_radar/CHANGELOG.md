@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.4
+- Zentrier-Knopf erscheint nur, wenn die Karte verschoben oder gezoomt wurde
+
 ## 0.12.3
 - Knopf „Zur Startansicht“ (Fadenkreuz) unter den Zoom-Knöpfen: zentriert auf den Standort mit Start-Zoom
 

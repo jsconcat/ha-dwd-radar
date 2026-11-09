@@ -231,6 +231,10 @@
       map.easeTo({ center: [cfg.center[1], cfg.center[0]], zoom: Z(cfg.zoom), duration: 450 });
       showControls();
     });
+    // the recenter button only appears once the view differs from the start view
+    var updHome = function () { $('zhome').style.display = atHome() ? 'none' : ''; };
+    $('zhome').style.display = 'none';
+    map.on('moveend', updHome);
     map.on('zoomend', declutterTemps);
     map.on('moveend', declutterTemps);
     map.on('resize', declutterTemps);
@@ -250,7 +254,7 @@
 
   function atHome() {
     var c = map.getCenter();
-    return Math.abs(map.getZoom() - Z(cfg.zoom)) < 0.01 && Math.abs(c.lat - cfg.center[0]) < 1e-3 && Math.abs(c.lng - cfg.center[1]) < 1e-3;
+    return Math.abs(map.getZoom() - Z(cfg.zoom)) < 0.02 && Math.abs(c.lat - cfg.center[0]) < 2e-3 && Math.abs(c.lng - cfg.center[1]) < 2e-3;
   }
   function armReset() {
     clearTimeout(resetTimer);
