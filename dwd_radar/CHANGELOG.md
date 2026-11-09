@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.5
+- Fix: Radar-Vorhersage (+2 h) fehlte seit 0.11.0 – der Nowcast-Lauf wurde noch im entfernten Leaflet-Verzeichnis gesucht
+
 ## 0.12.4
 - Zentrier-Knopf erscheint nur, wenn die Karte verschoben oder gezoomt wurde
 

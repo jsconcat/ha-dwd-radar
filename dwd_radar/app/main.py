@@ -707,6 +707,10 @@ class Radar:
                     if x:
                         f["x"] = 1
                     frames.append(f)
+        # the raw layer has its own nowcast directory (the legacy PNG one no longer exists)
+        if fc_run is None and self.o["show_forecast"] and self.last_run \
+                and (self.raw / "fc" / f"{self.last_run:%Y%m%d%H%M}").is_dir():
+            fc_run = self.last_run
         last_t = frames[-1]["t"] if frames else ""
         frames += [f for f in self.model_frames if f["t"] > last_t]
         if LEGACY_PNG:
