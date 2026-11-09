@@ -24,7 +24,7 @@ log = logging.getLogger("dwd_radar.temps")
 CATALOG_URL = "https://www.dwd.de/DE/leistungen/met_verfahren_mosmix/mosmix_stationskatalog.cfg?view=nasPublication&nn=16102"
 MOSMIX_URL = "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/single_stations/{id}/kml/MOSMIX_L_LATEST_{id}.kmz"
 POI_URL = "https://opendata.dwd.de/weather/weather_reports/poi/{id}-BEOB.csv"
-MAX_STATIONS = 60
+MAX_STATIONS = 120
 FLOAT = re.compile(r"^-?\d+\.\d+$")
 INT = re.compile(r"^-?\d+$")
 

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.1
+- Temperaturen: bis zu 120 Stationen (dichter, damit auch beim Hineinzoomen genug Werte sichtbar sind)
+
 ## 0.12.0
 - Temperaturen an DWD-Stationen auf der Karte: Vergangenheit/Jetzt aus Stationsmeldungen (POI), danach MOSMIX-Vorhersage (stündlich, zur Zeitleiste interpoliert); Auswahl der Stationen je nach Zoom ohne Überlappung
 - Option `temperatures`: off / on / toggle (Knopf „°C“ auf der Karte, Zustand bleibt auf dem Gerät gespeichert)
