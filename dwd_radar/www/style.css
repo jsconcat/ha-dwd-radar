@@ -126,3 +126,6 @@ html.dark .maplibregl-ctrl-attrib, html.dark .maplibregl-ctrl-attrib.maplibregl-
 html.dark .maplibregl-ctrl-attrib a { color: #9fb4c6; }
 html.dark .maplibregl-ctrl-attrib-button { filter: invert(1); }
 .maplibregl-marker.pin { position: absolute; pointer-events: none; }
+.attrib { position: absolute; right: 0; bottom: 0; z-index: 5; font-size: 9px; line-height: 13px; padding: 0 4px;
+  background: rgba(255,255,255,.55); color: #66737c; pointer-events: none; white-space: nowrap; }
+html.dark .attrib { background: rgba(20,24,29,.6); color: #8592a0; }

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.1
+- WebGL-Seite: Quellenangabe wieder als kleine Zeile unten rechts (statt MapLibre-Steuerelement)
+
 ## 0.10.0
 - Neue WebGL-Seite `/local/dwd-radar/gl.html` (MapLibre GL JS): Bewegungsinterpolation und Farbstufen im Shader, stufenlos für jede Zeitposition; alle Daten als GPU-Texturen (keine Aussetzer bei Wolken)
 - Server liefert zusätzlich Rohdaten: Regen 16 bit (R/G), Wolken 8 bit, Bewegungsfelder (OpenCV DIS) je Bildpaar für Radar, Nowcast und Modelle; `manifest2.json`

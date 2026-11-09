@@ -164,10 +164,15 @@
       minZoom: Z(cfg.minZoom), maxZoom: Z(cfg.maxZoom) + 0.5,
       maxBounds: [[b[0][1] - dlon, b[0][0] - dlat], [b[1][1] + dlon, b[1][0] + dlat]],
       dragRotate: false, pitchWithRotate: false, touchPitch: false, renderWorldCopies: false, fadeDuration: 0,
-      attributionControl: { compact: true, customAttribution: [bm.attribution || '', 'Relief: AWS Terrain Tiles',
-        'Radar/Modelle: © Deutscher Wetterdienst'].filter(Boolean).join(' · ') }
+      attributionControl: false
     });
     map.touchZoomRotate.disableRotation();
+    // tiny attribution line like the Leaflet page (MapLibre's control is larger)
+    var at = document.createElement('div');
+    at.className = 'attrib';
+    at.textContent = [bm.attribution || '', 'Relief: AWS Terrain Tiles', 'Radar/Modelle: © Deutscher Wetterdienst']
+      .filter(Boolean).join(' · ');
+    document.body.appendChild(at);
     map.keyboard.disable();
     map.on('load', function () {
       map.addLayer(wx);
