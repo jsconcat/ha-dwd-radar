@@ -1,7 +1,7 @@
 # DWD Regenradar
 
 Erzeugt alle 5 Minuten Regenradar-Overlays ausschließlich aus DWD-Open-Data und stellt
-sie als Leaflet-Seite bereit: `/local/dwd-radar/index.html` (iframe-Karte im Dashboard).
+sie als WebGL-Seite bereit: `/local/dwd-radar/gl.html` (iframe-Karte im Dashboard; `index.html` leitet weiter).
 
 ## Daten
 - Produkt **RV** (ODIM-HDF5, `opendata.dwd.de/weather/radar/composite/rv/`):
@@ -25,9 +25,7 @@ sie als Leaflet-Seite bereit: `/local/dwd-radar/index.html` (iframe-Karte im Das
 | `stale_minutes` | ab diesem Datenalter Hinweis „Stand …“ |
 | `show_clouds` / `cloud_opacity` | Wolken aus ICON-D2/EU/ICON (Modell, kein Satellit) |
 | `forecast_days` | 0 = keine Modellvorhersage, 1–7 Tage (nach den 2 h Radar-Nowcast) |
-| `color_style` | `classes` = feste Farbstufen wie WarnWetter, `smooth` = stufenloser Verlauf |
 | `theme` | `auto` = folgt Home Assistant bzw. dem Gerät, `light`, `dark`. Pro Karte: `?theme=dark` |
-| `smooth_motion` | Zwischenbilder per Optical Flow (Radar 1 min, Modelle 10/30 min). Kostet CPU und etwas Speicher |
 | `basemap` | `own` (Grenzen/Orte/Gewässer/Autobahnen selbst erzeugt), `basemapde`, `carto` (Key), `osm` |
 | `hillshade*` | Relief aus offenen Höhendaten (einmalig erzeugt) |
 
@@ -41,6 +39,6 @@ Radar: © Deutscher Wetterdienst (CC BY 4.0). Karte: © OpenStreetMap-Mitwirkend
 Relief: AWS Terrain Tiles (Mapzen). Leaflet: BSD-2-Clause.
 
 ## Einstellungen pro Dashboard-Karte (iframe-URL)
-`/local/dwd-radar/index.html?loader=1&days=3&return=30&zoom=10`
+`/local/dwd-radar/gl.html?days=3&return=30&zoom=10`
 - `days` 0–7 (höchstens so viele wie in der App eingestellt), `return` 0–120 s, `zoom`, `lat`/`lon` (Kartenmitte + Heimat-Pin,
   muss im Kartenbereich der App liegen).

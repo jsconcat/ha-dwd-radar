@@ -2,40 +2,11 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>DWD Regenradar</title>
-<link rel="stylesheet" href="lib/leaflet/leaflet.css">
-</head>
-<body>
-<div id="map"></div>
-<div id="stamp" class="stamp"><span id="stamp-time">–</span><span id="stamp-tag"></span></div>
-<div id="bar" class="bar hidden" aria-hidden="true">
-  <button id="play" class="play" aria-label="Wiedergabe">
-    <svg id="ico-pause" viewBox="0 0 24 24" style="display:none"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-    <svg id="ico-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></svg>
-  </button>
-  <div id="track" class="track">
-    <div id="seg-past" class="seg past"></div>
-    <div id="seg-fc" class="seg fc"></div>
-    <div id="seg-model" class="seg model"></div>
-    <div id="ticks" class="ticks"></div>
-    <div id="now" class="nowmark"><span>Aktuell</span></div>
-    <div id="knob" class="knob"><span id="knob-label"></span></div>
-  </div>
-</div>
-<script src="lib/leaflet/leaflet.js"></script>
 <script>
-/* index.html is cached by the browser (/local: 31 days) – load app files with the current version */
-(function () {
-  var v = String(Date.now());
-  var go = function (ver) {
-    var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'style.css?v=' + ver;
-    document.head.appendChild(l);
-    var s = document.createElement('script'); s.src = 'app.js?v=' + ver; document.body.appendChild(s);
-  };
-  fetch('config.json?_=' + v, { cache: 'no-store' }).then(function (r) { return r.json(); })
-    .then(function (c) { go(c.version || v); }).catch(function () { go(v); });
-})();
+/* The radar page is gl.html (WebGL). Old dashboard URLs pointing here are forwarded (query kept). */
+location.replace('gl.html' + location.search.replace(/([?&])loader=1&?/, '$1').replace(/[?&]$/, ''));
 </script>
-</body>
+</head>
+<body></body>
 </html>

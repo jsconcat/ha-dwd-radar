@@ -1,5 +1,5 @@
 name: DWD Regenradar
-version: "0.10.1"
+version: "0.11.0"
 slug: dwd_radar
 description: Regenradar aus DWD-Open-Data (RV-Komposit + 2-h-Vorhersage) als Leaflet-Seite unter /local/dwd-radar/
 url: https://github.com/jsconcat/ha-dwd-radar
@@ -40,8 +40,6 @@ options:
   show_clouds: true
   cloud_opacity: 1.0
   forecast_days: 7
-  color_style: classes
-  smooth_motion: true
   theme: auto
   log_level: info
 schema:
@@ -76,7 +74,5 @@ schema:
   show_clouds: bool
   cloud_opacity: float(0.1,1)
   forecast_days: int(0,7)
-  color_style: list(classes|smooth)
-  smooth_motion: bool
   theme: list(auto|light|dark)
   log_level: list(debug|info|warning|error)

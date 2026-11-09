@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0
+- WebGL-Seite `gl.html` ist jetzt die Radarseite; `index.html` leitet dorthin weiter (alte Dashboard-URLs funktionieren weiter)
+- Leaflet-Seite und die Erzeugung der fertigen Farb-PNGs entfernt – der Server rechnet nur noch Rohdaten und Bewegungsfelder (deutlich weniger CPU)
+
 ## 0.10.1
 - WebGL-Seite: Quellenangabe wieder als kleine Zeile unten rechts (statt MapLibre-Steuerelement)
 

@@ -44,6 +44,10 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("dwd_radar")
 
+# Rendered colour PNGs for the former Leaflet page (index.html). The WebGL page (gl.html) only needs the
+# raw layer, so these are off (the Leaflet page itself was removed in 0.11; flag kept for debugging only).
+LEGACY_PNG = os.environ.get("LEGACY_PNG", "0") == "1"
+
 
 def iso(t: datetime) -> str:
     return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -101,7 +105,11 @@ class Radar:
         self.cloud_dir = WWW / "frames" / "clouds"
         self.lut = build_lut(opt["radar_opacity"])
         self.raw = WWW / "frames" / "raw"
-        self.model_frames = self.model_frames_from_disk()
+        self.model_frames = self.model_frames_from_disk() if LEGACY_PNG else []
+        if not LEGACY_PNG:
+            for old in ("obs", "fc", "model", "clouds"):
+                shutil.rmtree(WWW / "frames" / old, ignore_errors=True)
+            (WWW / "manifest.json").unlink(missing_ok=True)
         self.model_frames2, self.model_clouds2 = self.model_frames2_from_disk()
         self.obs_dir = WWW / "frames" / "obs"
         self.fc_dir = WWW / "frames" / "fc"
@@ -131,7 +139,7 @@ class Radar:
 
     def existing_obs(self) -> dict[datetime, Path]:
         out = {}
-        for p in self.obs_dir.glob("o_*.png"):
+        for p in (self.raw / "obs").glob("r_*.png"):
             try:
                 out[datetime.strptime(p.stem[2:], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)] = p
             except ValueError:
@@ -156,13 +164,12 @@ class Radar:
             rates[fr.lead] = r
             if fr.lead == 0:
                 self.obs_cache[fr.valid] = r.astype(np.float16)
-                path = self.obs_path(fr.valid)
-                if path.exists():
-                    continue
-            else:
-                path = self.fc_path(run, fr.lead)
+            if not LEGACY_PNG:
+                continue
+            path = self.obs_path(fr.valid) if fr.lead == 0 else self.fc_path(run, fr.lead)
+            if fr.lead == 0 and path.exists():
+                continue
             atomic_write(path, self.renderer.png_from_target(r))
-            n += 1
         # raw layer (WebGL page): encoded fields + motion fields
         rdir = self.raw / "fc" / f"{run:%Y%m%d%H%M}"
         for fr in frames:
@@ -170,8 +177,10 @@ class Radar:
                 rp = self.raw / "obs" / f"r_{fr.valid:%Y%m%d%H%M}.png"
                 if not rp.exists():
                     atomic_write(rp, rawdata.rain_png(rates[0]))
+                    n += 1
             else:
                 atomic_write(rdir / f"r_{fr.lead:03d}.png", rawdata.rain_png(rates[fr.lead]))
+                n += 1
         nfl = 0
         if with_forecast:
             ls = sorted(rates)
@@ -185,7 +194,7 @@ class Radar:
         if 0 in rates:
             nfl += self.obs_flows(run)
         ni = 0
-        if self.o.get("smooth_motion", True):
+        if LEGACY_PNG and self.o.get("smooth_motion", True):
             if with_forecast:
                 ls = sorted(rates)
                 for a, b in zip(ls, ls[1:]):
@@ -265,8 +274,7 @@ class Radar:
             self.last_run = newest
             self.save_state()
         # backfill missing analysis frames (past window), newest first, a few per cycle
-        have = {t for t in self.existing_obs()
-                if (self.raw / "obs" / f"r_{t:%Y%m%d%H%M}.png").exists()}
+        have = set(self.existing_obs())
         window_start = now - timedelta(minutes=self.o["past_minutes"])
         avail = {t for t, _ in runs}
         missing = [t for t in sorted(avail, reverse=True)
@@ -465,12 +473,12 @@ class Radar:
             d = self.model_dir / f"{p['src']}_{p['run']:%Y%m%d%H}"
             pp, pc = d / f"p_{p['t']:%Y%m%d%H}.png", d / f"c_{p['t']:%Y%m%d%H}.png"
             rate = None
-            if not pp.exists():
+            if LEGACY_PNG and not pp.exists():
                 rate = self.model_rate(p)
                 atomic_write(pp, self.precip_png(rate))
                 n_new += 1
             # motion-interpolated frames between this and the previous step of the same source
-            if self.o.get("smooth_motion", True) and prev is not None and prev["src"] == p["src"] \
+            if LEGACY_PNG and self.o.get("smooth_motion", True) and prev is not None and prev["src"] == p["src"] \
                     and prev["run"] == p["run"]:
                 nsub = 6
                 span = p["t"] - prev["t"]
@@ -489,13 +497,14 @@ class Radar:
                     frames.append({"t": iso(t), "k": "m", "u": f"frames/model/{d.name}/{x.name}", "s": p["src"],
                                    "d": p["dt"], "x": 1})
             f = {"t": iso(p["t"]), "k": "m", "u": f"frames/model/{d.name}/{pp.name}", "s": p["src"], "d": p["dt"]}
-            if self.o.get("show_clouds"):
+            if LEGACY_PNG and self.o.get("show_clouds"):
                 cc = self.models.cloud(p)
                 if cc is not None:
                     if not pc.exists():
                         atomic_write(pc, self.cloud_png(cc))
                     f["c"] = f"frames/model/{d.name}/{pc.name}"
-            frames.append(f)
+            if LEGACY_PNG:
+                frames.append(f)
             keep.add(d.name)
             prev, prev_rate = p, rate
         for dname, (fls, changed) in flows_by_dir.items():
@@ -504,8 +513,8 @@ class Radar:
         self.model_frames = frames
         self.model_frames2, self.model_clouds2 = frames2, clouds2
         if n_new:
-            log.info("Modellbilder: %d neu, %d gesamt bis %s (Download 24 h: %.0f MB)", n_new, len(frames),
-                     frames[-1]["t"] if frames else "-", self.models.download_mb_24h())
+            log.info("Modellbilder: %d neu, %d gesamt bis %s (Download 24 h: %.0f MB)", n_new, len(frames2),
+                     frames2[-1]["t"] if frames2 else "-", self.models.download_mb_24h())
         cutoff = time.time() - 900
         if self.model_dir.exists():
             for d in self.model_dir.iterdir():
@@ -645,6 +654,7 @@ class Radar:
             "clouds": clouds,
         }
         atomic_write(WWW / "manifest2.json", json.dumps(m2, separators=(",", ":")).encode())
+        return len(frames)
 
     # --------------------------------------------------------------- manifest
     def cleanup_and_manifest(self) -> None:
@@ -698,7 +708,8 @@ class Radar:
                     frames.append(f)
         last_t = frames[-1]["t"] if frames else ""
         frames += [f for f in self.model_frames if f["t"] > last_t]
-        self.attach_clouds(frames)
+        if LEGACY_PNG:
+            self.attach_clouds(frames)
         age_min = (now - newest_obs).total_seconds() / 60 if newest_obs else None
         stale = age_min is None or age_min > self.o["stale_minutes"]
         manifest = {
@@ -713,9 +724,11 @@ class Radar:
             "error": self.last_error,
             "frames": frames,
         }
-        atomic_write(WWW / "manifest.json", json.dumps(manifest, separators=(",", ":")).encode())
+        if LEGACY_PNG:
+            atomic_write(WWW / "manifest.json", json.dumps(manifest, separators=(",", ":")).encode())
+        n2 = 0
         try:
-            self.write_manifest2(now, keep_from, newest_obs, fc_run, stale)
+            n2 = self.write_manifest2(now, keep_from, newest_obs, fc_run, stale)
         except Exception as e:
             log.error("manifest2 fehlgeschlagen: %s", e)
             log.debug(traceback.format_exc())
@@ -726,7 +739,7 @@ class Radar:
                        latest_frame=iso(newest_obs) if newest_obs else None,
                        data_age_min=round(age_min, 1) if age_min is not None else None,
                        forecast_run=iso(fc_run) if fc_run else None,
-                       frames=len(frames),
+                       frames=n2 if not LEGACY_PNG else len(frames),
                        dwd_latency_s=self.latency_s,
                        model_runs={k: iso(v.run) for k, v in self.models.runs.items() if k != "d2prev"},
                        model_frames=len(self.model_frames),
