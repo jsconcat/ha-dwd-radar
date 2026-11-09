@@ -747,7 +747,7 @@ class Radar:
                        frames=n2 if not LEGACY_PNG else len(frames),
                        dwd_latency_s=self.latency_s,
                        model_runs={k: iso(v.run) for k, v in self.models.runs.items() if k != "d2prev"},
-                       model_frames=len(self.model_frames),
+                       model_frames=len(self.model_frames2),
                        model_download_mb_24h=self.models.download_mb_24h(),
                        model_error=self.models.error,
                        last_success=iso(self.last_success) if self.last_success else None,
