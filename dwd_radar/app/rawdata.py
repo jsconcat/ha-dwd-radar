@@ -45,7 +45,9 @@ def rain_png(rate: np.ndarray) -> bytes:
 
 
 def cloud_png(cc: np.ndarray) -> bytes:
-    return png_l(enc_cloud(cc))
+    # soft cloud edges (model grid cells are 1-2 km; WarnWetter-like smooth look)
+    from scipy import ndimage
+    return png_l(enc_cloud(ndimage.gaussian_filter(np.nan_to_num(cc, nan=0.0).astype(np.float32), 1.6, mode="nearest")))
 
 
 def flow_png(a: np.ndarray, b: np.ndarray) -> tuple[bytes, float]:

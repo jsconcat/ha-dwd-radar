@@ -125,7 +125,7 @@ class Radar:
         self.latency_s: float | None = None
         # a geometry change (extent/resolution) invalidates rendered frames
         geo = json.dumps([self.renderer.bounds, opt["resolution_m"], opt["smoothing_km"], opt["radar_opacity"],
-                          opt.get("color_style", "classes"), bool(opt.get("smooth_motion", True)), "r4"])
+                          opt.get("color_style", "classes"), bool(opt.get("smooth_motion", True)), "r5"])
         if st.get("geometry") != geo:
             log.info("Ausschnitt/Darstellung geändert – vorhandene Bilder werden neu erzeugt")
             shutil.rmtree(WWW / "frames", ignore_errors=True)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1
+- Hell-Design wie WarnWetter: Land blassgrün, Wolken weiß und deckender – wolkenfreie Gebiete sind als Grün erkennbar
+- Wolkenfelder weicher (Glättung beim Erzeugen)
+
 ## 0.13.0
 - DWD-Unwetterwarnungen als Overlay (Gemeindeebene, zusammengefasst und vereinfacht, Farben nach Warnstufe); Antippen zeigt Warntext und Zeitraum; folgt der Zeitleiste (nur zum gewählten Zeitpunkt gültige Warnungen)
 - Ebenen-Menü statt „°C“-Knopf: Temperaturen und Unwetterwarnungen einzeln schaltbar (je nach Option off/on/toggle)

@@ -111,7 +111,7 @@
     if (kind === 'base') return isDark && bm.baseDark ? bm.baseDark : bm.base;
     return isDark && bm.labelsDark ? bm.labelsDark : bm.labels;
   }
-  var BG = { light: '#e3e8dc', dark: '#1b2026' };
+  var BG = { light: '#c4d1ad', dark: '#1b2026' };   // light: pale green land like WarnWetter (clear sky = green)
   function applyTheme(force) {
     var d = wantDark();
     if (d === isDark && !force) return;
@@ -430,7 +430,7 @@
     '  }\n' +
     '  float ra = cov * mix(u_oa, u_ob, u_w);\n' +
     '  float c = mix(smp(u_ca, v_uc), smp(u_cb, v_uc), u_wc) * u_hasc;\n' +
-    '  float ca = smoothstep(0.1, 1.0, c) * u_calpha * (1.0 - ra);\n' +
+    '  float ca = smoothstep(0.12, 0.92, c) * u_calpha * (1.0 - ra);\n' +
     '  FRAG = vec4(col * ra + u_ccol * ca, ra + ca);\n' +
     '}';
 
@@ -533,8 +533,8 @@
       gl.uniform4fv(L.u_gc, gc.v);
       gl.uniform1f(L.u_wc, cOn ? cst.w : 0);
       gl.uniform1f(L.u_hasc, cOn ? 1 : 0);
-      gl.uniform3fv(L.u_ccol, isDark ? [0.56, 0.6, 0.65] : [0.97, 0.98, 0.99]);
-      gl.uniform1f(L.u_calpha, (isDark ? 0.36 : 0.62) * (cfg.cloudOpacity || 1));
+      gl.uniform3fv(L.u_ccol, isDark ? [0.6, 0.64, 0.69] : [1.0, 1.0, 1.0]);
+      gl.uniform1f(L.u_calpha, (isDark ? 0.42 : 0.86) * (cfg.cloudOpacity || 1));
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
       gl.enableVertexAttribArray(this.aPos);
       gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 8, 0);

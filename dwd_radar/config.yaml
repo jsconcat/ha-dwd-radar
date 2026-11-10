@@ -1,5 +1,5 @@
 name: DWD Regenradar
-version: "0.13.0"
+version: "0.13.1"
 slug: dwd_radar
 description: Regenradar aus DWD-Open-Data (Radar, 2-h-Vorhersage, ICON-Modelle bis 7 Tage, Temperaturen, Unwetterwarnungen) als WebGL-Karte unter /local/dwd-radar/
 url: https://github.com/jsconcat/ha-dwd-radar
